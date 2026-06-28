@@ -112,7 +112,14 @@ export default function Communities() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg treffin-gradient text-white border-transparent hover:opacity-90 transition-all whitespace-nowrap"
-              onClick={() => setShowCreate(true)}
+              onClick={() => {
+                if (!user) {
+                  toast({ title: "Sign in required", description: "Please sign in to create a community.", variant: "destructive" });
+                  openSignIn();
+                  return;
+                }
+                setShowCreate(true);
+              }}
               data-testid="button-create-community"
             >
               <Plus className="w-3.5 h-3.5" /> Create

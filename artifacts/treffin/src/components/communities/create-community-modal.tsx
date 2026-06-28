@@ -4,6 +4,7 @@ import { X, Globe, Lock, Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCreateCommunity, Community } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { useUser, useClerk } from "@clerk/react";
 
 const EMOJI_OPTIONS = ["🤖", "🧠", "🌍", "🚀", "🔬", "👑", "💡", "📚", "🎯", "🏛️", "⚡", "🌱"];
 const CATEGORY_OPTIONS = ["Technology", "Philosophy", "Politics", "Startups", "Science", "History", "Economics", "Culture", "Health", "Art", "General"];
@@ -29,11 +30,20 @@ export function CreateCommunityModal({ onClose, onCreated }: Props) {
   const [rules, setRules] = useState<string[]>([...DEFAULT_RULES]);
   const [showRules, setShowRules] = useState(false);
   const { toast } = useToast();
+  const { isSignedIn } = useUser();
+  const { openSignIn } = useClerk();
   const createMutation = useCreateCommunity();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    if (!isSignedIn) {
+      toast({ title: "Sign in required", description: "Please sign in to create a community.", variant: "destructive" });
+      onClose();
+      openSignIn();
+      return;
+    }
 
     const cleanedRules = rules.map((r) => r.trim()).filter(Boolean);
 
@@ -44,8 +54,15 @@ export function CreateCommunityModal({ onClose, onCreated }: Props) {
           onCreated(community);
           onClose();
         },
-        onError: () => {
-          toast({ title: "Failed to create community", variant: "destructive" });
+        onError: (err: any) => {
+          const status = err?.status ?? err?.response?.status;
+          if (status === 401) {
+            toast({ title: "Sign in required", description: "Please sign in to create a community.", variant: "destructive" });
+            onClose();
+            openSignIn();
+          } else {
+            toast({ title: "Failed to create community", variant: "destructive" });
+          }
         },
       }
     );
