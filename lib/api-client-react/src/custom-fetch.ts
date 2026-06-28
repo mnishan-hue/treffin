@@ -17,6 +17,15 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _globalHeaders: Record<string, string> = {};
+
+/**
+ * Set global headers that are attached to every fetch request.
+ * Pass an empty object to clear previously set headers.
+ */
+export function setGlobalHeaders(headers: Record<string, string>): void {
+  _globalHeaders = { ...headers };
+}
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -54,10 +63,8 @@ function resolveMethod(input: RequestInfo | URL, explicitMethod?: string): strin
   return "GET";
 }
 
-// Use loose check for URL — some runtimes (e.g. React Native) polyfill URL
-// differently, so `instanceof URL` can fail.
 function isUrl(input: RequestInfo | URL): input is URL {
-  return typeof URL !== "undefined" && input instanceof URL;
+  return input instanceof URL;
 }
 
 function applyBaseUrl(input: RequestInfo | URL): RequestInfo | URL {
@@ -111,12 +118,6 @@ function isTextMediaType(mediaType: string | null): boolean {
   );
 }
 
-// Use strict equality: in browsers, `response.body` is `null` when the
-// response genuinely has no content.  In React Native, `response.body` is
-// always `undefined` because the ReadableStream API is not implemented —
-// even when the response carries a full payload readable via `.text()` or
-// `.json()`.  Loose equality (`== null`) matches both `null` and `undefined`,
-// which causes every React Native response to be treated as empty.
 function hasNoBody(response: Response, method: string): boolean {
   if (method === "HEAD") return true;
   if (NO_BODY_STATUS.has(response.status)) return true;
@@ -258,9 +259,8 @@ async function parseErrorBody(response: Response, method: string): Promise<unkno
 
   const mediaType = getMediaType(response.headers);
 
-  // Fall back to text when blob() is unavailable (e.g. some React Native builds).
   if (mediaType && !isJsonMediaType(mediaType) && !isTextMediaType(mediaType)) {
-    return typeof response.blob === "function" ? response.blob() : response.text();
+    return response.blob();
   }
 
   const raw = await response.text();
@@ -335,7 +335,11 @@ export async function customFetch<T = unknown>(
     throw new TypeError(`customFetch: ${method} requests cannot have a body.`);
   }
 
-  const headers = mergeHeaders(isRequest(input) ? input.headers : undefined, headersInit);
+  const headers = mergeHeaders(
+    Object.keys(_globalHeaders).length ? _globalHeaders : undefined,
+    isRequest(input) ? input.headers : undefined,
+    headersInit,
+  );
 
   if (
     typeof init.body === "string" &&

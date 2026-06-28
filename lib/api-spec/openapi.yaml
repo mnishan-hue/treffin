@@ -1,22 +1,63 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Treffin API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: feed
+    description: Feed operations
+  - name: debates
+    description: Debate operations
+  - name: articles
+    description: Article operations
+  - name: users
+    description: User operations
+  - name: topics
+    description: Topic operations
+  - name: stats
+    description: Stats and aggregates
+  - name: communities
+    description: Community operations
+  - name: reputation
+    description: Reputation operations
+  - name: admin
+    description: Admin operations
+  - name: notifications
+    description: Notification operations
+  - name: search
+    description: Global search
+  - name: math
+    description: Treffin Mathematics operations
 paths:
+  /search:
+    get:
+      operationId: globalSearch
+      tags: [search]
+      summary: Global search across debates, articles, users, communities
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +65,2856 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /feed:
+    get:
+      operationId: getFeed
+      tags: [feed]
+      summary: Get home feed posts
+      parameters:
+        - name: tab
+          in: query
+          schema:
+            type: string
+            enum: [for_you, following, debates, articles, communities]
+          required: false
+        - name: page
+          in: query
+          schema:
+            type: integer
+          required: false
+        - name: authorId
+          in: query
+          schema:
+            type: integer
+          required: false
+      responses:
+        "200":
+          description: Feed posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedPost"
+
+  /debates:
+    get:
+      operationId: getDebates
+      tags: [debates]
+      summary: Get list of debates
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+          required: false
+      responses:
+        "200":
+          description: Debates list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Debate"
+    post:
+      operationId: createDebate
+      tags: [debates]
+      summary: Create a new debate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateInput"
+      responses:
+        "201":
+          description: Created debate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Debate"
+
+  /debates/trending:
+    get:
+      operationId: getTrendingDebates
+      tags: [debates]
+      summary: Get trending debates for sidebar
+      responses:
+        "200":
+          description: Trending debates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrendingDebate"
+
+  /debates/{id}:
+    get:
+      operationId: getDebate
+      tags: [debates]
+      summary: Get debate by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Debate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Debate"
+
+  /debates/{id}/my-vote:
+    get:
+      operationId: getMyDebateVote
+      tags: [debates]
+      summary: Get the authenticated user's vote on a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User's current vote or null if not voted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyVote"
+
+  /debates/{id}/vote:
+    post:
+      operationId: voteDebate
+      tags: [debates]
+      summary: Vote on a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoteInput"
+      responses:
+        "200":
+          description: Updated vote counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Debate"
+
+  /articles:
+    get:
+      operationId: getArticles
+      tags: [articles]
+      summary: Get list of articles
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [trending, newest, most_liked]
+      responses:
+        "200":
+          description: Articles list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Article"
+    post:
+      operationId: createArticle
+      tags: [articles]
+      summary: Create a new article
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArticleInput"
+      responses:
+        "201":
+          description: Created article
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+
+  /articles/{id}:
+    get:
+      operationId: getArticle
+      tags: [articles]
+      summary: Get article by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Article
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+
+  /articles/{id}/annotations:
+    get:
+      operationId: getArticleAnnotations
+      tags: [articles]
+      summary: Get annotations for an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of annotations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Annotation"
+    post:
+      operationId: createAnnotation
+      tags: [articles]
+      summary: Create an annotation on an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnnotationInput"
+      responses:
+        "201":
+          description: Created annotation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Annotation"
+        "401":
+          description: Unauthorized
+
+  /annotations/{id}:
+    delete:
+      operationId: deleteAnnotation
+      tags: [articles]
+      summary: Delete an annotation (owner or article author)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+        "403":
+          description: Forbidden
+        "404":
+          description: Not found
+
+  /users/top-thinkers:
+    get:
+      operationId: getTopThinkers
+      tags: [users]
+      summary: Get top thinkers leaderboard
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [this_week, this_month, all_time]
+          required: false
+      responses:
+        "200":
+          description: Top thinkers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TopThinker"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+
+  /users/{id}/positions:
+    get:
+      operationId: getUserPositions
+      tags: [users]
+      summary: Get all positions for a user grouped by topic (public)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User positions grouped by topic, newest first within each group
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UserPositionGroup"
+        "404":
+          description: User not found
+
+  /users/me/positions:
+    post:
+      operationId: createUserPosition
+      tags: [users]
+      summary: Declare a new position (authenticated)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserPositionInput"
+      responses:
+        "201":
+          description: Created position
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserPosition"
+        "401":
+          description: Unauthorized
+
+  /users/me/interests:
+    patch:
+      operationId: updateUserInterests
+      tags: [users]
+      summary: Save the authenticated user's interest domains
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserInterestsInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          description: Invalid interests
+        "401":
+          description: Unauthorized
+
+  /users/{id}/dna:
+    get:
+      operationId: getUserDna
+      tags: [users]
+      summary: Get user intellectual DNA domain scores
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Intellectual DNA domain scores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DomainScore"
+        "404":
+          description: User not found
+
+  /users/{id}/debate-history:
+    get:
+      operationId: getUserDebateHistory
+      tags: [users]
+      summary: Get debates a user has voted in, with their side
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Debate participation history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DebateHistoryEntry"
+        "404":
+          description: User not found
+
+  /topics:
+    get:
+      operationId: getTopics
+      tags: [topics]
+      summary: Get available topics
+      responses:
+        "200":
+          description: Topics list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Topic"
+
+  /stats/daily-question:
+    get:
+      operationId: getDailyQuestion
+      tags: [stats]
+      summary: Get daily big question for the hero banner
+      responses:
+        "200":
+          description: Daily question with debate stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyQuestion"
+
+  /stats/weekly-challenge:
+    get:
+      operationId: getWeeklyChallenge
+      tags: [stats]
+      summary: Get active weekly challenge
+      responses:
+        "200":
+          description: Active weekly challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyChallenge"
+
+  /stats/daily-question/vote:
+    post:
+      operationId: voteDailyQuestion
+      tags: [stats]
+      summary: Cast a vote on the active daily question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyQuestionVoteInput"
+      responses:
+        "200":
+          description: Vote recorded, returns updated question stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyQuestion"
+        "409":
+          description: Already voted on this question
+
+  /stats/weekly-challenge/submit:
+    post:
+      operationId: submitWeeklyChallenge
+      tags: [stats]
+      summary: Submit a response to the active weekly challenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeeklyChallengeSubmissionInput"
+      responses:
+        "200":
+          description: Submission recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyChallengeSubmission"
+        "409":
+          description: Already submitted to this challenge
+
+  /posts:
+    post:
+      operationId: createPost
+      tags: [feed]
+      summary: Create a new post/thought
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostInput"
+      responses:
+        "201":
+          description: Created post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPost"
+
+  /communities:
+    get:
+      operationId: getCommunities
+      tags: [communities]
+      summary: Get list of communities
+      responses:
+        "200":
+          description: Communities list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Community"
+    post:
+      operationId: createCommunity
+      tags: [communities]
+      summary: Create a new community
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityInput"
+      responses:
+        "201":
+          description: Created community
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Community"
+
+  /communities/{id}:
+    get:
+      operationId: getCommunity
+      tags: [communities]
+      summary: Get community by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Community detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityDetail"
+
+  /communities/{id}/rules:
+    patch:
+      operationId: updateCommunityRules
+      tags: [communities]
+      summary: Update community rules (creator only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityRulesInput"
+      responses:
+        "200":
+          description: Updated community
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityDetail"
+        "403":
+          description: Not the creator
+        "404":
+          description: Community not found
+
+  /communities/{id}/join:
+    post:
+      operationId: joinCommunity
+      tags: [communities]
+      summary: Join a community
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Join result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityMembershipResult"
+
+  /communities/{id}/leave:
+    delete:
+      operationId: leaveCommunity
+      tags: [communities]
+      summary: Leave a community
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Leave result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommunityMembershipResult"
+
+  /communities/{id}/requests:
+    get:
+      operationId: getCommunityJoinRequests
+      tags: [communities]
+      summary: Get pending join requests for a private community (creator only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Pending join requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CommunityJoinRequest"
+
+  /communities/{id}/requests/{userId}/approve:
+    post:
+      operationId: approveCommunityJoinRequest
+      tags: [communities]
+      summary: Approve a pending join request (creator only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+
+  /communities/{id}/requests/{userId}/deny:
+    delete:
+      operationId: denyCommunityJoinRequest
+      tags: [communities]
+      summary: Deny a pending join request (creator only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Denied
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+
+  /communities/{id}/posts:
+    get:
+      operationId: getCommunityPosts
+      tags: [communities]
+      summary: Get posts for a community
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Community posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeedPost"
+    post:
+      operationId: createCommunityPost
+      tags: [communities]
+      summary: Create a post in a community
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostInput"
+      responses:
+        "201":
+          description: Created post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPost"
+
+  /reputation:
+    get:
+      operationId: getReputation
+      tags: [reputation]
+      summary: Get current user's reputation summary and history
+      responses:
+        "200":
+          description: Reputation summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReputationSummary"
+        "401":
+          description: Unauthorized
+
+  /reputation/award:
+    post:
+      operationId: awardReputation
+      tags: [reputation]
+      summary: Award reputation points for an action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepAwardInput"
+      responses:
+        "200":
+          description: Award recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [total]
+                properties:
+                  total:
+                    type: integer
+        "401":
+          description: Unauthorized
+
+  /notifications:
+    get:
+      operationId: getNotifications
+      tags: [notifications]
+      summary: Get current user's notifications
+      responses:
+        "200":
+          description: Notifications list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Notification"
+        "401":
+          description: Unauthorized
+
+  /notifications/read-all:
+    patch:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: All marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationOk"
+        "401":
+          description: Unauthorized
+
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark a single notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Marked read
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationOk"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Not found
+
+  /posts/{id}/reveal:
+    patch:
+      operationId: revealPost
+      tags: [feed]
+      summary: Reveal the author identity of an anonymous post (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated post with identity revealed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPost"
+        "403":
+          description: Not the post owner
+        "404":
+          description: Post not found
+
+  /posts/{id}/like:
+    post:
+      operationId: likePost
+      tags: [feed]
+      summary: Like or unlike a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated post
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedPost"
+
+  /posts/{id}/comments:
+    get:
+      operationId: getPostComments
+      tags: [feed]
+      summary: Get comments for a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Post comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DebateComment"
+        "404":
+          description: Post not found
+    post:
+      operationId: createPostComment
+      tags: [feed]
+      summary: Post a comment on a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateCommentInput"
+      responses:
+        "201":
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateComment"
+        "404":
+          description: Post not found
+
+  /posts/{id}/report:
+    post:
+      operationId: reportPost
+      tags: [feed]
+      summary: Report a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostReportInput"
+      responses:
+        "200":
+          description: Report recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "404":
+          description: Post not found
+
+  /posts/{id}/comments/{commentId}/like:
+    post:
+      operationId: likePostComment
+      tags: [feed]
+      summary: Toggle like on a community post comment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated like state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentLikeToggle"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Comment not found
+
+  /posts/{id}/comments/{commentId}:
+    delete:
+      operationId: deletePostComment
+      tags: [feed]
+      summary: Delete a comment on a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "404":
+          description: Comment not found
+
+  /articles/{id}/like:
+    post:
+      operationId: likeArticle
+      tags: [articles]
+      summary: Like an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated article
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Article"
+        "404":
+          description: Article not found
+
+  /articles/{id}/comments:
+    post:
+      operationId: createArticleComment
+      tags: [articles]
+      summary: Post a comment on an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateCommentInput"
+      responses:
+        "201":
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateComment"
+        "404":
+          description: Article not found
+
+  /users/me:
+    get:
+      operationId: getCurrentUser
+      tags: [users]
+      summary: Get the current authenticated user's DB profile
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+        "401":
+          description: Unauthorized
+        "404":
+          description: User not synced yet
+    put:
+      operationId: syncCurrentUser
+      tags: [users]
+      summary: Create or update current user profile linked to Clerk auth
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserSyncInput"
+      responses:
+        "200":
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSyncResult"
+        "401":
+          description: Unauthorized
+
+  /users/me/review-requests:
+    get:
+      operationId: getMyReviewRequests
+      tags: [users]
+      summary: Get review request statuses for the current user's articles
+      responses:
+        "200":
+          description: List of review requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MyReviewRequest"
+        "401":
+          description: Unauthorized
+        "404":
+          description: User not synced yet
+
+  /debates/{id}/outcome:
+    get:
+      operationId: getDebateOutcome
+      tags: [debates]
+      summary: Get published outcome for a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Debate outcome
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateOutcome"
+        "404":
+          description: No outcome found
+
+  /debates/{id}/comments:
+    get:
+      operationId: getDebateComments
+      tags: [debates]
+      summary: Get comments for a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Debate comments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DebateComment"
+    post:
+      operationId: createDebateComment
+      tags: [debates]
+      summary: Post a comment on a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateCommentInput"
+      responses:
+        "201":
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateComment"
+        "404":
+          description: Debate not found
+
+  /debates/{id}/comments/{commentId}/like:
+    post:
+      operationId: likeDebateComment
+      tags: [debates]
+      summary: Toggle like on a debate comment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated like state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommentLikeToggle"
+        "401":
+          description: Not authenticated
+        "404":
+          description: Comment not found
+
+  /debates/{id}/agreements:
+    get:
+      operationId: getDebateAgreements
+      tags: [debates]
+      summary: Get points of agreement for a debate (public)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Agreements list plus caller participation eligibility
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateAgreementsResponse"
+        "404":
+          description: Debate not found
+    post:
+      operationId: createDebateAgreement
+      tags: [debates]
+      summary: Add a point of agreement (participants who have voted on this debate only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateAgreementInput"
+      responses:
+        "201":
+          description: Created agreement
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateAgreement"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Not a debate participant
+        "404":
+          description: Debate not found
+
+  /agreements/{id}/upvote:
+    post:
+      operationId: upvoteDebateAgreement
+      tags: [debates]
+      summary: Toggle upvote on a point of agreement (participants only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated agreement with new upvote count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebateAgreement"
+        "401":
+          description: Unauthorized
+        "403":
+          description: Not a debate participant
+        "404":
+          description: Agreement not found
+
+  /users/{id}/follow:
+    post:
+      operationId: followUser
+      tags: [users]
+      summary: Follow a user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Follow result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FollowResult"
+        "404":
+          description: User not found
+
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      tags: [admin]
+      summary: Get platform stats
+      responses:
+        "200":
+          description: Platform stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+        "401":
+          description: Unauthorized
+
+  /admin/debates:
+    get:
+      operationId: adminGetDebates
+      tags: [admin]
+      summary: List all debates
+      responses:
+        "200":
+          description: Debates list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminDebate"
+        "401":
+          description: Unauthorized
+
+  /admin/debates/{id}:
+    delete:
+      operationId: adminDeleteDebate
+      tags: [admin]
+      summary: Delete a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/debates/{id}/trending:
+    patch:
+      operationId: adminSetDebateTrending
+      tags: [admin]
+      summary: Set trending status for a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrendingToggle"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/debates/{id}/featured:
+    patch:
+      operationId: adminSetDebateFeatured
+      tags: [admin]
+      summary: Set featured status for a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeaturedToggle"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/debates/{id}/outcome:
+    post:
+      operationId: adminPublishDebateOutcome
+      tags: [admin]
+      summary: Publish debate outcome
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DebateOutcomeInput"
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/articles:
+    get:
+      operationId: adminGetArticles
+      tags: [admin]
+      summary: List all articles
+      responses:
+        "200":
+          description: Articles list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminArticle"
+        "401":
+          description: Unauthorized
+
+  /admin/articles/{id}:
+    delete:
+      operationId: adminDeleteArticle
+      tags: [admin]
+      summary: Delete an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/articles/{id}/trending:
+    patch:
+      operationId: adminSetArticleTrending
+      tags: [admin]
+      summary: Set trending status for an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrendingToggle"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/articles/{id}/featured:
+    patch:
+      operationId: adminSetArticleFeatured
+      tags: [admin]
+      summary: Set featured status for an article
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeaturedToggle"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /articles/{id}/review-request:
+    post:
+      operationId: submitReviewRequest
+      tags: [articles]
+      summary: Submit an article for peer review
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Review request created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArticleReviewRequest"
+        "409":
+          description: Review request already exists
+
+  /admin/review-requests:
+    get:
+      operationId: adminGetReviewRequests
+      tags: [admin]
+      summary: List all article review requests
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, approved, rejected]
+      responses:
+        "200":
+          description: Review requests list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminReviewRequest"
+        "401":
+          description: Unauthorized
+
+  /admin/review-requests/{id}:
+    patch:
+      operationId: adminActionReviewRequest
+      tags: [admin]
+      summary: Approve or reject a review request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequestAction"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Review request not found
+
+  /admin/posts:
+    get:
+      operationId: adminGetPosts
+      tags: [admin]
+      summary: List all posts
+      responses:
+        "200":
+          description: Posts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminPost"
+        "401":
+          description: Unauthorized
+
+  /admin/posts/{id}:
+    delete:
+      operationId: adminDeletePost
+      tags: [admin]
+      summary: Delete a post
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/communities:
+    get:
+      operationId: adminGetCommunities
+      tags: [admin]
+      summary: List all communities
+      responses:
+        "200":
+          description: Communities list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminCommunity"
+        "401":
+          description: Unauthorized
+
+  /admin/communities/{id}:
+    delete:
+      operationId: adminDeleteCommunity
+      tags: [admin]
+      summary: Delete a community
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/comments:
+    get:
+      operationId: adminGetComments
+      tags: [admin]
+      summary: List all comments
+      responses:
+        "200":
+          description: Comments list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminComment"
+        "401":
+          description: Unauthorized
+
+  /admin/comments/{id}:
+    delete:
+      operationId: adminDeleteComment
+      tags: [admin]
+      summary: Delete a comment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/comments/{id}/flag:
+    patch:
+      operationId: adminFlagComment
+      tags: [admin]
+      summary: Flag a comment as strong argument or fair point
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentFlagInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/daily-question:
+    get:
+      operationId: adminGetDailyQuestion
+      tags: [admin]
+      summary: Get active daily question
+      responses:
+        "200":
+          description: Daily question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyQuestion"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: adminSetDailyQuestion
+      tags: [admin]
+      summary: Create or replace the active daily question
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DailyQuestionInput"
+      responses:
+        "200":
+          description: Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyQuestion"
+        "401":
+          description: Unauthorized
+
+  /admin/topics:
+    get:
+      operationId: adminGetTopics
+      tags: [admin]
+      summary: List all topics
+      responses:
+        "200":
+          description: Topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminTopic"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: adminCreateTopic
+      tags: [admin]
+      summary: Create a topic
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminTopicInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTopic"
+        "401":
+          description: Unauthorized
+
+  /admin/topics/{id}:
+    patch:
+      operationId: adminUpdateTopic
+      tags: [admin]
+      summary: Update a topic
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminTopicInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminTopic"
+        "401":
+          description: Unauthorized
+    delete:
+      operationId: adminDeleteTopic
+      tags: [admin]
+      summary: Delete a topic
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/users:
+    get:
+      operationId: adminGetUsers
+      tags: [admin]
+      summary: List all users
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+          required: false
+      responses:
+        "200":
+          description: Users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUsersPage"
+        "401":
+          description: Unauthorized
+
+  /admin/weekly-challenge:
+    get:
+      operationId: adminGetWeeklyChallenge
+      tags: [admin]
+      summary: Get active weekly challenge
+      responses:
+        "200":
+          description: Weekly challenge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyChallenge"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: adminSetWeeklyChallenge
+      tags: [admin]
+      summary: Set the active weekly challenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WeeklyChallengeInput"
+      responses:
+        "200":
+          description: Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WeeklyChallenge"
+        "401":
+          description: Unauthorized
+
+  /debates/{id}/freeze:
+    patch:
+      operationId: adminFreezeDebate
+      tags: [admin]
+      summary: Freeze or unfreeze a debate
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FreezeDebateInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Debate"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Debate not found
+
+  /debates/{id}/leave:
+    post:
+      operationId: leaveDebate
+      tags: [debates]
+      summary: Opt out of a debate (stop receiving notifications, hide from feed)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Left debate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResult"
+        "401":
+          description: Unauthorized
+
+  /debates/rules-ack:
+    get:
+      operationId: getRulesAck
+      tags: [debates]
+      summary: Check whether the current user has acknowledged debate rules
+      responses:
+        "200":
+          description: Acknowledgment status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesAckStatus"
+        "401":
+          description: Unauthorized
+    post:
+      operationId: ackDebateRules
+      tags: [debates]
+      summary: Acknowledge debate community rules (one-time)
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RulesAckStatus"
+        "401":
+          description: Unauthorized
+
+  /content-appeals:
+    post:
+      operationId: submitContentAppeal
+      tags: [moderation]
+      summary: Submit an appeal for removed content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContentAppealInput"
+      responses:
+        "201":
+          description: Appeal submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAppeal"
+        "401":
+          description: Unauthorized
+
+  /admin/appeals:
+    get:
+      operationId: adminGetAppeals
+      tags: [admin]
+      summary: Get all content appeals
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+          required: false
+      responses:
+        "200":
+          description: Appeals list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ContentAppeal"
+        "401":
+          description: Unauthorized
+
+  /admin/appeals/{id}:
+    patch:
+      operationId: adminReviewAppeal
+      tags: [admin]
+      summary: Approve or deny a content appeal
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppealReviewInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContentAppeal"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Appeal not found
+
+  /admin/audit-log:
+    get:
+      operationId: adminGetAuditLog
+      tags: [admin]
+      summary: Get moderation audit log
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          required: false
+        - name: offset
+          in: query
+          schema:
+            type: integer
+          required: false
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ModAuditLog"
+        "401":
+          description: Unauthorized
+
+  /admin/debates/{id}/freeze:
+    patch:
+      operationId: adminFreezeDebateAdmin
+      tags: [admin]
+      summary: Freeze or unfreeze a debate (admin endpoint)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FreezeDebateInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Debate not found
+
+  /admin/comments/{id}/remove:
+    patch:
+      operationId: adminRemoveComment
+      tags: [admin]
+      summary: Soft-remove a comment with a reason
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveContentInput"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /admin/posts/{id}/remove:
+    patch:
+      operationId: adminRemovePost
+      tags: [admin]
+      summary: Soft-remove a post with a reason
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RemoveContentInput"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminOk"
+        "401":
+          description: Unauthorized
+
+  /math/categories:
+    get:
+      operationId: listMathCategories
+      tags: [math]
+      summary: List all math categories
+      responses:
+        "200":
+          description: Categories list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathCategory"
+
+  /math/stats:
+    get:
+      operationId: getMathStats
+      tags: [math]
+      summary: Get math platform stats
+      responses:
+        "200":
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathStats"
+
+  /math/problems:
+    get:
+      operationId: listMathProblems
+      tags: [math]
+      summary: List math problems
+      parameters:
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: difficulty
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: unsolved
+          in: query
+          schema:
+            type: boolean
+        - name: solvedBy
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Problems list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathProblem"
+    post:
+      operationId: createMathProblem
+      tags: [math]
+      summary: Post a new math problem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathProblemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathProblem"
+        "401":
+          description: Unauthorized
+
+  /math/problems/{id}:
+    get:
+      operationId: getMathProblem
+      tags: [math]
+      summary: Get a math problem with solutions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Problem detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathProblemDetail"
+        "404":
+          description: Not found
+
+  /math/problems/{id}/rate-difficulty:
+    post:
+      operationId: rateMathDifficulty
+      tags: [math]
+      summary: Submit a community difficulty rating (1-5) for a math problem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathDifficultyRatingInput"
+      responses:
+        "200":
+          description: Rating recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathDifficultyStats"
+        "401":
+          description: Unauthorized
+        "400":
+          description: Invalid rating
+
+  /math/problems/{id}/difficulty-stats:
+    get:
+      operationId: getMathDifficultyStats
+      tags: [math]
+      summary: Get community difficulty rating stats for a math problem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Difficulty stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathDifficultyStats"
+
+  /math/problems/{id}/elegance-debate:
+    post:
+      operationId: startEleganceDebate
+      tags: [math]
+      summary: Start an elegance debate comparing solutions for a math problem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Debate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EleganceDebateResult"
+        "400":
+          description: Not enough solutions
+        "401":
+          description: Unauthorized
+
+  /math/problems/{id}/solutions:
+    post:
+      operationId: submitMathSolution
+      tags: [math]
+      summary: Submit a solution to a math problem
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathSolutionInput"
+      responses:
+        "201":
+          description: Solution created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathSolution"
+        "401":
+          description: Unauthorized
+
+  /math/solutions/{id}:
+    patch:
+      operationId: updateMathSolution
+      tags: [math]
+      summary: Update a math solution (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathSolutionUpdate"
+      responses:
+        "200":
+          description: Solution updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathSolution"
+        "403":
+          description: Not the solution owner
+        "404":
+          description: Solution not found
+    delete:
+      operationId: deleteMathSolution
+      tags: [math]
+      summary: Delete a math solution (owner only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Solution deleted
+        "403":
+          description: Not the solution owner
+        "404":
+          description: Solution not found
+
+  /math/problem-of-week:
+    get:
+      operationId: getMathProblemOfWeek
+      tags: [math]
+      summary: Get the current problem of the week
+      responses:
+        "200":
+          description: Problem of the week
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathProblemOfWeekDetail"
+        "404":
+          description: No problem of the week set
+
+  /math/react:
+    post:
+      operationId: toggleMathReaction
+      tags: [math]
+      summary: Toggle a reaction on a problem or solution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathReactionInput"
+      responses:
+        "200":
+          description: Reaction toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [added]
+                properties:
+                  added:
+                    type: boolean
+        "401":
+          description: Unauthorized
+
+  /math/flag:
+    post:
+      operationId: flagMathContent
+      tags: [math]
+      summary: Flag a math problem or solution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathFlagInput"
+      responses:
+        "200":
+          description: Flagged
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+        "401":
+          description: Unauthorized
+
+  /math/leaderboard:
+    get:
+      operationId: getMathLeaderboard
+      tags: [math]
+      summary: Get math platform leaderboard
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Leaderboard entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathLeaderboardEntry"
+
+  /math/users/{userId}:
+    get:
+      operationId: getMathUserProfile
+      tags: [math]
+      summary: Get math user profile and stats
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathUserProfile"
+        "404":
+          description: Not found
+    put:
+      operationId: updateMathUserProfile
+      tags: [math]
+      summary: Update math user profile
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathUserProfileInput"
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathUserProfile"
+
+  /math/contests:
+    get:
+      operationId: listMathContests
+      tags: [math]
+      summary: List math competitions
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, upcoming, past, all]
+            default: all
+      responses:
+        "200":
+          description: Contests list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathContest"
+    post:
+      operationId: createMathContest
+      tags: [math]
+      summary: Create a math contest (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathContestInput"
+      responses:
+        "201":
+          description: Created contest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathContest"
+
+  /math/contests/{contestId}:
+    get:
+      operationId: getMathContest
+      tags: [math]
+      summary: Get math contest detail with problems and leaderboard
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Contest detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathContestDetail"
+        "404":
+          description: Not found
+
+  /math/contests/{contestId}/enter:
+    post:
+      operationId: enterMathContest
+      tags: [math]
+      summary: Enter a math contest
+      parameters:
+        - name: contestId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Entry created or updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathContestEntry"
+
+  /math/annotations:
+    get:
+      operationId: getMathAnnotations
+      tags: [math]
+      summary: Get annotations for a math problem or solution
+      parameters:
+        - name: problemId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: solutionId
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Annotations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathAnnotation"
+    post:
+      operationId: addMathAnnotation
+      tags: [math]
+      summary: Add an annotation to a math problem/solution
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathAnnotationInput"
+      responses:
+        "201":
+          description: Created annotation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathAnnotation"
+
+  /math/related-problems:
+    get:
+      operationId: getRelatedMathProblems
+      tags: [math]
+      summary: Get related math problems by category and difficulty
+      parameters:
+        - name: problemId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 5
+      responses:
+        "200":
+          description: Related problems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathProblem"
+
+  /math/bookmarks:
+    get:
+      operationId: getMathBookmarks
+      tags: [math]
+      summary: Get bookmarked problems for current user
+      responses:
+        "200":
+          description: Bookmarks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathBookmark"
+    post:
+      operationId: addMathBookmark
+      tags: [math]
+      summary: Bookmark a math problem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MathBookmarkInput"
+      responses:
+        "201":
+          description: Bookmark added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MathBookmark"
+
+  /math/bookmarks/{problemId}:
+    delete:
+      operationId: removeMathBookmark
+      tags: [math]
+      summary: Remove a math problem bookmark
+      parameters:
+        - name: problemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+
+  /math/notifications:
+    get:
+      operationId: getMathNotifications
+      tags: [math]
+      summary: Get math notifications for current user
+      responses:
+        "200":
+          description: Notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MathNotification"
+
+  /math/notifications/read:
+    post:
+      operationId: markMathNotificationsRead
+      tags: [math]
+      summary: Mark all math notifications as read
+      responses:
+        "200":
+          description: Marked read
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok:
+                    type: boolean
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +2925,1978 @@ components:
       required:
         - status
 
+    FeedPost:
+      type: object
+      required: [id, type, authorId, authorName, authorTitle, authorAvatar, createdAt, likes, comments, reposts]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [opinion, article, knowledge, debate_highlight, quote]
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        authorTitle:
+          type: string
+        authorAvatar:
+          type: ["string", "null"]
+        isVerified:
+          type: boolean
+        createdAt:
+          type: string
+        content:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        excerpt:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+        topic:
+          type: ["string", "null"]
+        readTime:
+          type: ["integer", "null"]
+        likes:
+          type: integer
+        comments:
+          type: integer
+        reposts:
+          type: integer
+        saved:
+          type: boolean
+        isAnonymous:
+          type: boolean
+        isOwner:
+          type: boolean
+        liked:
+          type: boolean
+
+    Debate:
+      type: object
+      required: [id, title, category, supportPercent, againstPercent, participantCount, isLive]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        category:
+          type: string
+        supportPercent:
+          type: integer
+        againstPercent:
+          type: integer
+        participantCount:
+          type: integer
+        isLive:
+          type: boolean
+        imageUrl:
+          type: ["string", "null"]
+        rank:
+          type: ["integer", "null"]
+        isTrending:
+          type: boolean
+        isFeatured:
+          type: boolean
+        endsAt:
+          type: ["string", "null"]
+          format: date-time
+          description: ISO 8601 timestamp when this debate closes, or null if open-ended
+        isFrozen:
+          type: boolean
+        frozenReason:
+          type: ["string", "null"]
+        isAnonymous:
+          type: boolean
+        sourcesRequired:
+          type: boolean
+        closingArgMinHours:
+          type: integer
+        contentWarning:
+          type: ["string", "null"]
+        healthScore:
+          type: integer
+
+    TrendingDebate:
+      type: object
+      required: [id, title, participantCount, rank]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        participantCount:
+          type: integer
+        rank:
+          type: integer
+        trend:
+          type: string
+          enum: [up, down, stable]
+        dailyVotes:
+          type: array
+          items:
+            type: integer
+          description: Vote counts for the last 7 days oldest-first
+        endsAt:
+          type: ["string", "null"]
+          format: date-time
+          description: ISO 8601 timestamp when this debate closes, or null if open-ended
+
+    DebateInput:
+      type: object
+      required: [title, category]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+
+    VoteInput:
+      type: object
+      required: [vote]
+      properties:
+        vote:
+          type: string
+          enum: [support, against]
+
+    MyVote:
+      type: object
+      required: [side]
+      properties:
+        side:
+          type: ["string", "null"]
+          enum: [support, against, null]
+
+    Article:
+      type: object
+      required: [id, title, authorId, authorName, authorTitle, authorAvatar, createdAt, readTime, likes, isTrending, isFeatured, isExpertReviewed]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        excerpt:
+          type: ["string", "null"]
+        content:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        authorTitle:
+          type: string
+        authorAvatar:
+          type: ["string", "null"]
+        category:
+          type: ["string", "null"]
+        readTime:
+          type: integer
+        likes:
+          type: integer
+        liked:
+          type: boolean
+        isVerified:
+          type: boolean
+        createdAt:
+          type: string
+        isTrending:
+          type: boolean
+        isFeatured:
+          type: boolean
+        isExpertReviewed:
+          type: boolean
+        reviewRequestStatus:
+          type: ["string", "null"]
+        editedAt:
+          type: ["string", "null"]
+        isRemoved:
+          type: boolean
+        status:
+          type: string
+
+    ArticleInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        excerpt:
+          type: string
+        content:
+          type: string
+        category:
+          type: string
+        imageUrl:
+          type: string
+        peerReview:
+          type: boolean
+
+    Annotation:
+      type: object
+      required: [id, articleId, userId, selectedText, comment, paragraphIndex, createdAt, authorName, authorAvatar]
+      properties:
+        id:
+          type: integer
+        articleId:
+          type: integer
+        userId:
+          type: integer
+        selectedText:
+          type: string
+        comment:
+          type: string
+        paragraphIndex:
+          type: integer
+        createdAt:
+          type: string
+        authorName:
+          type: string
+        authorAvatar:
+          type: ["string", "null"]
+
+    AnnotationInput:
+      type: object
+      required: [selectedText, comment, paragraphIndex]
+      properties:
+        selectedText:
+          type: string
+        comment:
+          type: string
+        paragraphIndex:
+          type: integer
+
+    UserPosition:
+      type: object
+      required: [id, userId, topic, stance, isRevised, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        topic:
+          type: string
+        stance:
+          type: string
+        isRevised:
+          type: boolean
+        createdAt:
+          type: string
+
+    UserPositionGroup:
+      type: object
+      required: [topic, positions]
+      properties:
+        topic:
+          type: string
+        positions:
+          type: array
+          items:
+            $ref: "#/components/schemas/UserPosition"
+
+    UserPositionInput:
+      type: object
+      required: [topic, stance]
+      properties:
+        topic:
+          type: string
+        stance:
+          type: string
+
+    UserInterestsInput:
+      type: object
+      required: [interests]
+      properties:
+        interests:
+          type: array
+          items:
+            type: string
+          minItems: 3
+
+    UserProfile:
+      type: object
+      required: [id, name, title, reputationScore, followers, following]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        title:
+          type: string
+        bio:
+          type: ["string", "null"]
+        avatarUrl:
+          type: ["string", "null"]
+        reputationScore:
+          type: integer
+        followers:
+          type: integer
+        following:
+          type: integer
+        debatesJoined:
+          type: integer
+        articlesPublished:
+          type: integer
+        isVerified:
+          type: boolean
+        streakDays:
+          type: integer
+        interests:
+          type: array
+          items:
+            type: string
+          nullable: true
+
+    TopThinker:
+      type: object
+      required: [id, name, title, reputationScore, rank]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        title:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        reputationScore:
+          type: integer
+        rank:
+          type: integer
+
+    Topic:
+      type: object
+      required: [id, name, color]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        color:
+          type: string
+
+    DailyQuestion:
+      type: object
+      required: [id, question, supportPercent, againstPercent, participantCount, isLive, imageUrl]
+      properties:
+        id:
+          type: integer
+        question:
+          type: string
+        supportPercent:
+          type: integer
+        againstPercent:
+          type: integer
+        participantCount:
+          type: integer
+        isLive:
+          type: boolean
+        imageUrl:
+          type: string
+
+    DailyQuestionInput:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+        imageUrl:
+          type: string
+
+    PostInput:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+        type:
+          type: string
+          enum: [opinion, article, debate, poll]
+        topic:
+          type: string
+        isAnonymous:
+          type: boolean
+
+    Community:
+      type: object
+      required: [id, name, description, emoji, category, badge, badgeColor, gradient, isPrivate, isLive, memberCount, postsPerDay, totalPosts]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        emoji:
+          type: string
+        category:
+          type: string
+        badge:
+          type: string
+        badgeColor:
+          type: string
+        gradient:
+          type: string
+        isPrivate:
+          type: boolean
+        isLive:
+          type: boolean
+        memberCount:
+          type: integer
+        postsPerDay:
+          type: integer
+        totalPosts:
+          type: integer
+        creatorId:
+          type: ["integer", "null"]
+        rules:
+          type: ["array", "null"]
+          items:
+            type: string
+        isMember:
+          type: boolean
+        joinStatus:
+          type: string
+          enum: [none, pending, member]
+
+    CommunityMember:
+      type: object
+      required: [userId, role, name, title, isVerified, reputationScore]
+      properties:
+        userId:
+          type: integer
+        role:
+          type: string
+        name:
+          type: string
+        title:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        isVerified:
+          type: boolean
+        reputationScore:
+          type: integer
+
+    CommunityDetail:
+      type: object
+      required: [id, name, description, emoji, category, badge, badgeColor, gradient, isPrivate, isLive, memberCount, postsPerDay, totalPosts, members]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        description:
+          type: string
+        emoji:
+          type: string
+        category:
+          type: string
+        badge:
+          type: string
+        badgeColor:
+          type: string
+        gradient:
+          type: string
+        isPrivate:
+          type: boolean
+        isLive:
+          type: boolean
+        memberCount:
+          type: integer
+        postsPerDay:
+          type: integer
+        totalPosts:
+          type: integer
+        creatorId:
+          type: ["integer", "null"]
+        rules:
+          type: ["array", "null"]
+          items:
+            type: string
+        members:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommunityMember"
+        isMember:
+          type: boolean
+        joinStatus:
+          type: string
+          enum: [none, pending, member]
+
+    CommunityJoinRequest:
+      type: object
+      required: [userId, name, title, reputationScore, joinedAt]
+      properties:
+        userId:
+          type: integer
+        name:
+          type: string
+        title:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+        reputationScore:
+          type: integer
+        joinedAt:
+          type: string
+
+    CommunityRulesInput:
+      type: object
+      required: [rules]
+      properties:
+        rules:
+          type: array
+          items:
+            type: string
+
+    CommunityInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        emoji:
+          type: string
+        category:
+          type: string
+        isPrivate:
+          type: boolean
+        rules:
+          type: array
+          items:
+            type: string
+
+    ReputationEvent:
+      type: object
+      required: [id, eventType, points, description, createdAt]
+      properties:
+        id:
+          type: integer
+        eventType:
+          type: string
+        points:
+          type: integer
+        description:
+          type: string
+        referenceId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+
+    ReputationBreakdown:
+      type: object
+      required: [debates, articles, community, votes, posts]
+      properties:
+        debates:
+          type: integer
+        articles:
+          type: integer
+        community:
+          type: integer
+        votes:
+          type: integer
+        posts:
+          type: integer
+
+    ReputationSummary:
+      type: object
+      required: [total, breakdown, recentEvents]
+      properties:
+        total:
+          type: integer
+        breakdown:
+          $ref: "#/components/schemas/ReputationBreakdown"
+        recentEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReputationEvent"
+
+    RepAwardInput:
+      type: object
+      required: [eventType, description]
+      properties:
+        eventType:
+          type: string
+          enum: [post_created, post_liked, article_created, article_liked, debate_joined, debate_won, daily_question_voted, weekly_challenge_won, community_joined, streak_bonus, comment_posted, content_saved, profile_completed, long_comment]
+        description:
+          type: string
+        referenceId:
+          type: integer
+
+    CommunityMembershipResult:
+      type: object
+      required: [memberCount, joined]
+      properties:
+        memberCount:
+          type: integer
+        joined:
+          type: boolean
+        joinStatus:
+          type: string
+          enum: [none, pending, member]
+
+    WeeklyChallenge:
+      type: object
+      required: [id, question, startDate, endDate, isActive]
+      properties:
+        id:
+          type: integer
+        question:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        isActive:
+          type: boolean
+        winnerUserId:
+          type: ["string", "null"]
+        winnerName:
+          type: ["string", "null"]
+        winnerAvatar:
+          type: ["string", "null"]
+        winnerResponse:
+          type: ["string", "null"]
+
+    WeeklyChallengeInput:
+      type: object
+      required: [question, startDate, endDate]
+      properties:
+        question:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+
+    DailyQuestionVoteInput:
+      type: object
+      required: [side]
+      properties:
+        side:
+          type: string
+          enum: [support, against]
+
+    WeeklyChallengeSubmissionInput:
+      type: object
+      required: [response]
+      properties:
+        response:
+          type: string
+
+    WeeklyChallengeSubmission:
+      type: object
+      required: [id, challengeId, userId, userName, response, createdAt]
+      properties:
+        id:
+          type: integer
+        challengeId:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        userAvatar:
+          type: ["string", "null"]
+        response:
+          type: string
+        createdAt:
+          type: string
+
+    DebateOutcome:
+      type: object
+      required: [id, debateId, winningSide, justification, publishedAt]
+      properties:
+        id:
+          type: integer
+        debateId:
+          type: integer
+        winningSide:
+          type: string
+          enum: [support, against, draw]
+        justification:
+          type: string
+        topSupportCommentId:
+          type: ["integer", "null"]
+        topOppositionCommentId:
+          type: ["integer", "null"]
+        publishedAt:
+          type: string
+
+    DebateOutcomeInput:
+      type: object
+      required: [winningSide, justification]
+      properties:
+        winningSide:
+          type: string
+          enum: [support, against, draw]
+        justification:
+          type: string
+        topSupportCommentId:
+          type: integer
+        topOppositionCommentId:
+          type: integer
+
+    DebateComment:
+      type: object
+      required: [id, authorId, authorName, content, createdAt, isRemoved]
+      properties:
+        id:
+          type: integer
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        content:
+          type: string
+        side:
+          type: ["string", "null"]
+        isFlagged:
+          type: boolean
+        flagLabel:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        editedAt:
+          type: ["string", "null"]
+        isRemoved:
+          type: boolean
+        removedReason:
+          type: ["string", "null"]
+        sources:
+          type: ["string", "null"]
+          description: JSON array of {url, label} source citations
+        wordCount:
+          type: ["integer", "null"]
+        personalAttackWarning:
+          type: ["string", "null"]
+          description: Non-blocking advisory returned when post contains second-person attack patterns
+        likes:
+          type: integer
+          description: Total like count for this comment
+        likedByMe:
+          type: boolean
+          description: Whether the authenticated user has liked this comment
+        parentCommentId:
+          type: ["integer", "null"]
+          description: ID of the parent comment if this is a reply
+
+    CommentLikeToggle:
+      type: object
+      required: [likes, liked]
+      properties:
+        likes:
+          type: integer
+        liked:
+          type: boolean
+
+    AdminOk:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    AdminStats:
+      type: object
+      required: [totalUsers, totalPosts, totalDebates, totalArticles, totalCommunities, repEventsToday]
+      properties:
+        totalUsers:
+          type: integer
+        totalPosts:
+          type: integer
+        totalDebates:
+          type: integer
+        totalArticles:
+          type: integer
+        totalCommunities:
+          type: integer
+        repEventsToday:
+          type: integer
+        mostActiveUser:
+          type: ["string", "null"]
+
+    AdminDebate:
+      type: object
+      required: [id, title, category, participantCount, isLive, isTrending, isFeatured, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: ["string", "null"]
+        category:
+          type: string
+        participantCount:
+          type: integer
+        isLive:
+          type: boolean
+        isTrending:
+          type: boolean
+        isFeatured:
+          type: boolean
+        isFrozen:
+          type: boolean
+        frozenReason:
+          type: ["string", "null"]
+        healthScore:
+          type: integer
+        createdAt:
+          type: string
+        hasOutcome:
+          type: boolean
+
+    AdminArticle:
+      type: object
+      required: [id, title, authorId, readTime, likes, isTrending, isFeatured, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        excerpt:
+          type: ["string", "null"]
+        authorId:
+          type: integer
+        category:
+          type: ["string", "null"]
+        readTime:
+          type: integer
+        likes:
+          type: integer
+        isTrending:
+          type: boolean
+        isFeatured:
+          type: boolean
+        createdAt:
+          type: string
+
+    ArticleReviewRequest:
+      type: object
+      required: [id, articleId, requesterId, status, createdAt]
+      properties:
+        id:
+          type: integer
+        articleId:
+          type: integer
+        requesterId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        reviewerNote:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    MyReviewRequest:
+      type: object
+      required: [id, articleId, articleTitle, status, createdAt]
+      properties:
+        id:
+          type: integer
+        articleId:
+          type: integer
+        articleTitle:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        reviewerNote:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AdminReviewRequest:
+      type: object
+      required: [id, articleId, articleTitle, requesterId, requesterName, status, createdAt]
+      properties:
+        id:
+          type: integer
+        articleId:
+          type: integer
+        articleTitle:
+          type: string
+        requesterId:
+          type: integer
+        requesterName:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, rejected]
+        reviewerNote:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ReviewRequestAction:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+        reviewerNote:
+          type: string
+
+    AdminPost:
+      type: object
+      required: [id, type, authorId, content, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+        authorId:
+          type: integer
+        content:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AdminCommunity:
+      type: object
+      required: [id, name, memberCount, totalPosts, isPrivate, isLive, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        emoji:
+          type: string
+        memberCount:
+          type: integer
+        totalPosts:
+          type: integer
+        isPrivate:
+          type: boolean
+        isLive:
+          type: boolean
+        createdAt:
+          type: string
+
+    AdminComment:
+      type: object
+      required: [id, authorId, authorName, content, isFlagged, createdAt]
+      properties:
+        id:
+          type: integer
+        postId:
+          type: ["integer", "null"]
+        debateId:
+          type: ["integer", "null"]
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        content:
+          type: string
+        isFlagged:
+          type: boolean
+        flagLabel:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AdminTopic:
+      type: object
+      required: [id, name, color]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        color:
+          type: string
+        slug:
+          type: ["string", "null"]
+        icon:
+          type: ["string", "null"]
+        description:
+          type: ["string", "null"]
+
+    AdminTopicInput:
+      type: object
+      required: [name, color]
+      properties:
+        name:
+          type: string
+        color:
+          type: string
+        slug:
+          type: string
+        icon:
+          type: string
+        description:
+          type: string
+
+    AdminUser:
+      type: object
+      required: [id, name, title, reputationScore, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        title:
+          type: string
+        reputationScore:
+          type: integer
+        isVerified:
+          type: boolean
+        createdAt:
+          type: string
+
+    AdminUsersPage:
+      type: object
+      required: [users, total, page, pageSize]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        total:
+          type: integer
+        page:
+          type: integer
+        pageSize:
+          type: integer
+
+    TrendingToggle:
+      type: object
+      required: [isTrending]
+      properties:
+        isTrending:
+          type: boolean
+
+    FeaturedToggle:
+      type: object
+      required: [isFeatured]
+      properties:
+        isFeatured:
+          type: boolean
+
+    CommentFlagInput:
+      type: object
+      required: [isFlagged]
+      properties:
+        isFlagged:
+          type: boolean
+        flagLabel:
+          type: string
+          enum: [strong, fair]
+
+    DebateCommentInput:
+      type: object
+      required: [authorName, content]
+      properties:
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        content:
+          type: string
+        side:
+          type: string
+        sources:
+          type: string
+          description: JSON array of {url, label} source citations
+        parentCommentId:
+          type: integer
+          description: ID of parent comment when posting a reply
+
+    UserSyncInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        bio:
+          type: string
+        avatarUrl:
+          type: ["string", "null"]
+
+    DomainScore:
+      type: object
+      required: [domain, score]
+      properties:
+        domain:
+          type: string
+        score:
+          type: integer
+
+    UserSyncResult:
+      type: object
+      required: [ok, id]
+      properties:
+        ok:
+          type: boolean
+        id:
+          type: integer
+
+    FollowResult:
+      type: object
+      required: [ok, followers]
+      properties:
+        ok:
+          type: boolean
+        followers:
+          type: integer
+
+    SearchResults:
+      type: object
+      required: [debates, articles, users, communities]
+      properties:
+        debates:
+          type: array
+          items:
+            type: object
+            required: [id, title]
+            properties:
+              id: { type: integer }
+              title: { type: string }
+              category: { type: ["string", "null"] }
+        articles:
+          type: array
+          items:
+            type: object
+            required: [id, title]
+            properties:
+              id: { type: integer }
+              title: { type: string }
+              category: { type: ["string", "null"] }
+        users:
+          type: array
+          items:
+            type: object
+            required: [id, name, title]
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              title: { type: string }
+              avatarUrl: { type: ["string", "null"] }
+        communities:
+          type: array
+          items:
+            type: object
+            required: [id, name, emoji, category]
+            properties:
+              id: { type: integer }
+              name: { type: string }
+              emoji: { type: string }
+              category: { type: string }
+
+    Notification:
+      type: object
+      required: [id, userId, type, title, body, read, createdAt, count]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        actorName:
+          type: ["string", "null"]
+        actorInitials:
+          type: ["string", "null"]
+        read:
+          type: boolean
+        createdAt:
+          type: string
+        count:
+          type: integer
+          description: Number of batched notifications of the same type
+        batchKey:
+          type: ["string", "null"]
+
+    DebateAgreement:
+      type: object
+      required: [id, debateId, authorId, authorName, text, upvotes, hasUpvoted, isOwnAgreement, createdAt]
+      properties:
+        id:
+          type: integer
+        debateId:
+          type: integer
+        authorId:
+          type: string
+        authorName:
+          type: string
+        authorAvatarUrl:
+          type: string
+          nullable: true
+        text:
+          type: string
+        upvotes:
+          type: integer
+        hasUpvoted:
+          type: boolean
+        isOwnAgreement:
+          type: boolean
+        createdAt:
+          type: string
+
+    DebateAgreementsResponse:
+      type: object
+      required: [agreements, canPost]
+      properties:
+        agreements:
+          type: array
+          items:
+            $ref: "#/components/schemas/DebateAgreement"
+        canPost:
+          type: boolean
+
+    DebateAgreementInput:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+          maxLength: 280
+
+    NotificationOk:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    PostReportInput:
+      type: object
+      properties:
+        reason:
+          type: string
+
+    DebateHistoryEntry:
+      type: object
+      required: [id, debateId, debateTitle, category, side, joinedAt]
+      properties:
+        id:
+          type: integer
+        debateId:
+          type: integer
+        debateTitle:
+          type: string
+        category:
+          type: string
+        side:
+          type: string
+          enum: [support, against]
+        supportPercent:
+          type: integer
+        againstPercent:
+          type: integer
+        participantCount:
+          type: integer
+        joinedAt:
+          type: string
+
+    FreezeDebateInput:
+      type: object
+      required: [isFrozen]
+      properties:
+        isFrozen:
+          type: boolean
+        reason:
+          type: string
+
+    OkResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    RulesAckStatus:
+      type: object
+      required: [acknowledged]
+      properties:
+        acknowledged:
+          type: boolean
+        acknowledgedAt:
+          type: ["string", "null"]
+
+    ContentAppealInput:
+      type: object
+      required: [contentType, contentId, reason]
+      properties:
+        contentType:
+          type: string
+        contentId:
+          type: integer
+        reason:
+          type: string
+
+    ContentAppeal:
+      type: object
+      required: [id, userId, contentType, contentId, reason, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        contentType:
+          type: string
+        contentId:
+          type: integer
+        reason:
+          type: string
+        status:
+          type: string
+        reviewNote:
+          type: ["string", "null"]
+        reviewedAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AppealReviewInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [approved, denied]
+        reviewNote:
+          type: string
+
+    ModAuditLog:
+      type: object
+      required: [id, action, targetType, targetId, createdAt]
+      properties:
+        id:
+          type: integer
+        adminIdentifier:
+          type: ["string", "null"]
+        action:
+          type: string
+        targetType:
+          type: string
+        targetId:
+          type: integer
+        reason:
+          type: ["string", "null"]
+        meta:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    RemoveContentInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    MathCategory:
+      type: object
+      required: [id, name, slug, description, color, icon, isActive, sortOrder]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        color:
+          type: string
+        icon:
+          type: string
+        isActive:
+          type: boolean
+        sortOrder:
+          type: integer
+        problemCount:
+          type: integer
+
+    MathProblem:
+      type: object
+      required: [id, userId, userName, title, body, categoryId, categoryName, categoryColor, difficulty, isProblemOfWeek, isFeatured, isUnsolved, status, viewCount, solutionCount, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        userAvatar:
+          type: ["string", "null"]
+        title:
+          type: string
+        body:
+          type: string
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        categoryColor:
+          type: string
+        categoryIcon:
+          type: string
+        difficulty:
+          type: string
+        hints:
+          type: array
+          items:
+            type: string
+        communityDifficulty:
+          type: ["number", "null"]
+        difficultyVoteCount:
+          type: integer
+        isProblemOfWeek:
+          type: boolean
+        isFeatured:
+          type: boolean
+        isUnsolved:
+          type: boolean
+        status:
+          type: string
+        viewCount:
+          type: integer
+        solutionCount:
+          type: integer
+        reactionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        myReactions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+
+    MathSolution:
+      type: object
+      required: [id, problemId, userId, userName, body, approach, isAccepted, isFeatured, qualityScore, eleganceVotes, rigorVotes, clarityVotes, reactionCounts, myReactions, createdAt]
+      properties:
+        id:
+          type: integer
+        problemId:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        userAvatar:
+          type: ["string", "null"]
+        body:
+          type: string
+        approach:
+          type: string
+        isAccepted:
+          type: boolean
+        isFeatured:
+          type: boolean
+        qualityScore:
+          type: integer
+        eleganceVotes:
+          type: integer
+        rigorVotes:
+          type: integer
+        clarityVotes:
+          type: integer
+        reactionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        myReactions:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+
+    MathProblemDetail:
+      type: object
+      required: [id, userId, userName, title, body, categoryId, categoryName, categoryColor, difficulty, isProblemOfWeek, isFeatured, isUnsolved, status, viewCount, solutionCount, reactionCounts, myReactions, solutions, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        userAvatar:
+          type: ["string", "null"]
+        title:
+          type: string
+        body:
+          type: string
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        categoryColor:
+          type: string
+        categoryIcon:
+          type: string
+        difficulty:
+          type: string
+        hints:
+          type: array
+          items:
+            type: string
+        communityDifficulty:
+          type: ["number", "null"]
+        difficultyVoteCount:
+          type: integer
+        difficultyDistribution:
+          type: object
+          additionalProperties:
+            type: integer
+        myDifficultyVote:
+          type: ["integer", "null"]
+        isProblemOfWeek:
+          type: boolean
+        isFeatured:
+          type: boolean
+        isUnsolved:
+          type: boolean
+        status:
+          type: string
+        viewCount:
+          type: integer
+        solutionCount:
+          type: integer
+        reactionCounts:
+          type: object
+          additionalProperties:
+            type: integer
+        myReactions:
+          type: array
+          items:
+            type: string
+        solutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MathSolution"
+        createdAt:
+          type: string
+
+    MathProblemOfWeekDetail:
+      type: object
+      required: [id, problemId, weekStart, weekEnd, problem]
+      properties:
+        id:
+          type: integer
+        problemId:
+          type: integer
+        weekStart:
+          type: string
+        weekEnd:
+          type: string
+        note:
+          type: ["string", "null"]
+        featuredSolutionId:
+          type: ["integer", "null"]
+        featuredSolution:
+          $ref: "#/components/schemas/MathSolution"
+        problem:
+          $ref: "#/components/schemas/MathProblemDetail"
+
+    MathProblemInput:
+      type: object
+      required: [title, body, categoryId, difficulty]
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        categoryId:
+          type: integer
+        difficulty:
+          type: string
+          enum: [beginner, intermediate, advanced, olympiad, research]
+        hints:
+          type: string
+
+    MathSolutionInput:
+      type: object
+      required: [body, approach]
+      properties:
+        body:
+          type: string
+        approach:
+          type: string
+          enum: [calculus, geometric, algebraic, proof, intuitive, combinatorial, other]
+
+    MathSolutionUpdate:
+      type: object
+      properties:
+        body:
+          type: string
+        approach:
+          type: string
+          enum: [calculus, geometric, algebraic, proof, intuitive, combinatorial, other]
+
+    MathReactionInput:
+      type: object
+      required: [targetType, targetId, reactionType]
+      properties:
+        targetType:
+          type: string
+          enum: [problem, solution]
+        targetId:
+          type: integer
+        reactionType:
+          type: string
+          enum: [elegant, creative, insightful, rigorous, beginner_friendly, great_learning_moment]
+
+    MathFlagInput:
+      type: object
+      required: [targetType, targetId, reason]
+      properties:
+        targetType:
+          type: string
+          enum: [problem, solution]
+        targetId:
+          type: integer
+        reason:
+          type: string
+
+    MathStats:
+      type: object
+      required: [totalProblems, totalSolutions, activeCategories, potw]
+      properties:
+        totalProblems:
+          type: integer
+        totalSolutions:
+          type: integer
+        activeCategories:
+          type: integer
+        topCategory:
+          type: ["string", "null"]
+        potw:
+          type: ["object", "null"]
+
+    MathLeaderboardEntry:
+      type: object
+      required: [userId, displayName, reputationScore, totalSolutions, totalProblems, rank]
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: ["string", "null"]
+        favoriteCategory:
+          type: ["string", "null"]
+        reputationScore:
+          type: integer
+        totalSolutions:
+          type: integer
+        totalProblems:
+          type: integer
+        totalReactionsReceived:
+          type: integer
+        streak:
+          type: integer
+        rank:
+          type: integer
+
+    MathUserProfile:
+      type: object
+      required: [userId, displayName, reputationScore, totalSolutions, totalProblems, totalReactionsReceived, streak, createdAt]
+      properties:
+        userId:
+          type: string
+        displayName:
+          type: string
+        bio:
+          type: ["string", "null"]
+        favoriteCategory:
+          type: ["string", "null"]
+        reputationScore:
+          type: integer
+        totalSolutions:
+          type: integer
+        totalProblems:
+          type: integer
+        totalReactionsReceived:
+          type: integer
+        streak:
+          type: integer
+        lastActiveAt:
+          type: string
+        createdAt:
+          type: string
+        recentSolutions:
+          type: array
+          items:
+            $ref: "#/components/schemas/MathSolution"
+        recentProblems:
+          type: array
+          items:
+            $ref: "#/components/schemas/MathProblem"
+
+    MathUserProfileInput:
+      type: object
+      required: [displayName]
+      properties:
+        displayName:
+          type: string
+        bio:
+          type: string
+        favoriteCategory:
+          type: string
+
+    MathContest:
+      type: object
+      required: [id, title, description, difficulty, startTime, endTime, isActive, totalParticipants, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        difficulty:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        isActive:
+          type: boolean
+        prizeDescription:
+          type: ["string", "null"]
+        totalParticipants:
+          type: integer
+        createdAt:
+          type: string
+        status:
+          type: string
+          enum: [upcoming, active, past]
+
+    MathContestDetail:
+      type: object
+      required: [id, title, description, difficulty, startTime, endTime, isActive, totalParticipants, createdAt, problems, leaderboard]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        difficulty:
+          type: string
+        startTime:
+          type: string
+        endTime:
+          type: string
+        isActive:
+          type: boolean
+        prizeDescription:
+          type: ["string", "null"]
+        totalParticipants:
+          type: integer
+        createdAt:
+          type: string
+        status:
+          type: string
+        myEntry:
+          $ref: "#/components/schemas/MathContestEntry"
+        problems:
+          type: array
+          items:
+            $ref: "#/components/schemas/MathProblem"
+        leaderboard:
+          type: array
+          items:
+            $ref: "#/components/schemas/MathContestEntry"
+
+    MathContestEntry:
+      type: object
+      required: [id, contestId, userId, userName, score, solutionsCount, joinedAt]
+      properties:
+        id:
+          type: integer
+        contestId:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        score:
+          type: integer
+        solutionsCount:
+          type: integer
+        rank:
+          type: ["integer", "null"]
+        joinedAt:
+          type: string
+        lastSubmittedAt:
+          type: ["string", "null"]
+
+    MathContestInput:
+      type: object
+      required: [title, description, startTime, endTime]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        difficulty:
+          type: string
+          enum: [beginner, intermediate, advanced, olympiad]
+          default: intermediate
+        startTime:
+          type: string
+        endTime:
+          type: string
+        prizeDescription:
+          type: string
+        problemIds:
+          type: array
+          items:
+            type: integer
+
+    MathAnnotation:
+      type: object
+      required: [id, solutionId, problemId, userId, userName, body, createdAt]
+      properties:
+        id:
+          type: integer
+        solutionId:
+          type: integer
+        problemId:
+          type: integer
+        userId:
+          type: string
+        userName:
+          type: string
+        body:
+          type: string
+        selectionStart:
+          type: ["integer", "null"]
+        selectionEnd:
+          type: ["integer", "null"]
+        status:
+          type: string
+        createdAt:
+          type: string
+
+    MathAnnotationInput:
+      type: object
+      required: [problemId, body]
+      properties:
+        problemId:
+          type: integer
+        solutionId:
+          type: integer
+        body:
+          type: string
+        selectionStart:
+          type: integer
+        selectionEnd:
+          type: integer
+
+    MathBookmark:
+      type: object
+      required: [id, userId, problemId, listName, createdAt, problem]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        problemId:
+          type: integer
+        note:
+          type: ["string", "null"]
+        listName:
+          type: string
+        createdAt:
+          type: string
+        problem:
+          $ref: "#/components/schemas/MathProblem"
+
+    MathBookmarkInput:
+      type: object
+      required: [problemId]
+      properties:
+        problemId:
+          type: integer
+        note:
+          type: string
+        listName:
+          type: string
+
+    MathDifficultyRatingInput:
+      type: object
+      required: [rating]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+
+    MathDifficultyStats:
+      type: object
+      required: [average, voteCount, distribution]
+      properties:
+        average:
+          type: ["number", "null"]
+        voteCount:
+          type: integer
+        distribution:
+          type: object
+          additionalProperties:
+            type: integer
+        myVote:
+          type: ["integer", "null"]
+
+    EleganceDebateResult:
+      type: object
+      required: [debateId]
+      properties:
+        debateId:
+          type: integer
+
+    MathNotification:
+      type: object
+      required: [id, userId, type, title, body, isRead, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        type:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        targetType:
+          type: ["string", "null"]
+        targetId:
+          type: ["integer", "null"]
+        fromUserId:
+          type: ["string", "null"]
+        fromUserName:
+          type: ["string", "null"]
+        isRead:
+          type: boolean
+        createdAt:
+          type: string

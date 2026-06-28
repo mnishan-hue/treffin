@@ -1,20 +1,41 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
-
-export {}
+export * from "./users";
+export * from "./topics";
+export * from "./debates";
+export * from "./articles";
+export * from "./posts";
+export * from "./daily_questions";
+export * from "./communities";
+export * from "./reputation";
+export * from "./comments";
+export * from "./debate_outcomes";
+export * from "./weekly_challenges";
+export * from "./notifications";
+export * from "./debate_daily_votes";
+export * from "./post_reports";
+export * from "./article_review_requests";
+export * from "./annotations";
+export * from "./user_positions";
+export * from "./debate_agreements";
+export * from "./debate_participant_votes";
+export * from "./user_domain_scores";
+export * from "./mod_audit_log";
+export * from "./content_appeals";
+export * from "./debate_opt_outs";
+export * from "./debate_rules_acks";
+export * from "./daily_question_votes";
+export * from "./weekly_challenge_submissions";
+export * from "./math_categories";
+export * from "./math_problems";
+export * from "./math_solutions";
+export * from "./math_reactions";
+export * from "./math_flags";
+export * from "./math_problem_of_week";
+export * from "./math-contests";
+export * from "./math-annotations";
+export * from "./math-bookmarks";
+export * from "./math-user-profiles";
+export * from "./math-notifications";
+export * from "./math_difficulty_votes";
+export * from "./post_likes";
+export * from "./article_likes";
+export * from "./comment_likes";
