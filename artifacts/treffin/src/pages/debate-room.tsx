@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { AppLayout } from "@/components/layout/app-layout";
-import { useGetDebate, useVoteDebate, getGetDebateQueryKey, useGetMyDebateVote, getGetMyDebateVoteQueryKey, useLikeDebateComment } from "@workspace/api-client-react";
+import { useGetDebate, useVoteDebate, getGetDebateQueryKey, useGetMyDebateVote, getGetMyDebateVoteQueryKey } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatNumber, cn } from "@/lib/utils";
@@ -74,7 +74,6 @@ function ArgumentCard({ arg, side, isOxford, round }: { arg: Arg; side: "support
   const { openSignIn } = useClerk();
   const queryClient = useQueryClient();
   const qs = qualityScore({ ...arg, likes: likeCount });
-  const likeCommentMutation = useLikeDebateComment();
   const serverReplies = arg.replies ?? [];
 
   const isSupport = side === "support";
@@ -103,19 +102,33 @@ function ArgumentCard({ arg, side, isOxford, round }: { arg: Arg; side: "support
     setLiked(nowLiked);
     setLikeCount(p => nowLiked ? p + 1 : p - 1);
     try {
-      const data = await likeCommentMutation.mutateAsync({ id: arg.debateId, commentId: arg.id });
+      const token = await getToken();
+      const res = await fetch(`/api/debates/${arg.debateId}/comments/${arg.id}/like`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setLiked(prevLiked);
+        setLikeCount(prevCount);
+        if (res.status === 401) {
+          toast({ title: "Sign in required", description: "Please sign in to like arguments.", variant: "destructive" });
+          openSignIn();
+        } else {
+          toast({ title: err.error ?? "Could not save like", variant: "destructive" });
+        }
+        return;
+      }
+      const data = await res.json();
       setLikeCount(data.likes);
       setLiked(data.liked);
-    } catch (err: any) {
-      // Rollback on failure
+    } catch {
       setLiked(prevLiked);
       setLikeCount(prevCount);
-      if (err?.status === 401) {
-        toast({ title: "Sign in required", description: "Please sign in to like arguments.", variant: "destructive" });
-        openSignIn();
-      } else {
-        toast({ title: "Could not save like", variant: "destructive" });
-      }
+      toast({ title: "Could not save like", variant: "destructive" });
     }
   };
 
@@ -326,6 +339,7 @@ export default function DebateRoom() {
         .then((r) => (r.ok ? r.json() : []))
         .catch(() => []),
     enabled: !!debateId,
+    refetchInterval: 10_000,
   });
 
   const outcome = outcomeQuery.data ?? null;
