@@ -11,7 +11,7 @@ import { useGetDebateAgreements, getGetDebateAgreementsQueryKey, useCreateDebate
 import type { DebateAgreement } from "@workspace/api-client-react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { useUser } from "@clerk/react";
+import { useUser, useAuth, useClerk } from "@clerk/react";
 import { useAppContext } from "@/context/app-context";
 import { ConfettiCelebration } from "@/components/confetti-celebration";
 
@@ -70,6 +70,8 @@ function ArgumentCard({ arg, side, isOxford, round }: { arg: Arg; side: "support
   const [isPostingReply, setIsPostingReply] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
+  const { getToken, isSignedIn } = useAuth();
+  const { openSignIn } = useClerk();
   const queryClient = useQueryClient();
   const qs = qualityScore({ ...arg, likes: likeCount });
   const likeCommentMutation = useLikeDebateComment();
@@ -89,6 +91,11 @@ function ArgumentCard({ arg, side, isOxford, round }: { arg: Arg; side: "support
 
   const handleLike = async () => {
     if (!arg.debateId) return;
+    if (!isSignedIn) {
+      toast({ title: "Sign in required", description: "Please sign in to like arguments.", variant: "destructive" });
+      openSignIn();
+      return;
+    }
     const prevLiked = liked;
     const prevCount = likeCount;
     const nowLiked = !liked;
@@ -99,22 +106,36 @@ function ArgumentCard({ arg, side, isOxford, round }: { arg: Arg; side: "support
       const data = await likeCommentMutation.mutateAsync({ id: arg.debateId, commentId: arg.id });
       setLikeCount(data.likes);
       setLiked(data.liked);
-    } catch {
+    } catch (err: any) {
       // Rollback on failure
       setLiked(prevLiked);
       setLikeCount(prevCount);
-      toast({ title: "Could not save like", variant: "destructive" });
+      if (err?.status === 401) {
+        toast({ title: "Sign in required", description: "Please sign in to like arguments.", variant: "destructive" });
+        openSignIn();
+      } else {
+        toast({ title: "Could not save like", variant: "destructive" });
+      }
     }
   };
 
   const handlePostReply = async () => {
     if (!replyInput.trim() || isPostingReply || !arg.debateId) return;
+    if (!isSignedIn) {
+      toast({ title: "Sign in required", description: "Please sign in to post a reply.", variant: "destructive" });
+      openSignIn();
+      return;
+    }
     setIsPostingReply(true);
     try {
+      const token = await getToken();
       const authorName = user?.fullName || user?.firstName || "Anonymous";
       const res = await fetch(`/api/debates/${arg.debateId}/comments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           content: replyInput.trim(),
           authorName,
@@ -280,6 +301,9 @@ export default function DebateRoom() {
   const debateId = Number(id);
   const { user } = useUser();
   const { triggerRep } = useAppContext();
+
+  const { getToken, isSignedIn } = useAuth();
+  const { openSignIn } = useClerk();
 
   const { data: debate, isLoading } = useGetDebate(debateId, {
     query: { enabled: !!debateId, queryKey: getGetDebateQueryKey(debateId), refetchInterval: 15_000 },
@@ -454,6 +478,11 @@ export default function DebateRoom() {
 
   const handlePostArgument = async () => {
     if (!newArg.trim() || isPostingArg) return;
+    if (!isSignedIn) {
+      toast({ title: "Sign in required", description: "Please sign in to post an argument.", variant: "destructive" });
+      openSignIn();
+      return;
+    }
     const wc = newArg.trim().split(/\s+/).filter(Boolean).length;
     if (wc < 30) {
       toast({ title: "Argument too short", description: "Please write at least 30 words to keep debates substantive.", variant: "destructive" }); return;
@@ -467,9 +496,13 @@ export default function DebateRoom() {
     setIsPostingArg(true);
     try {
       const side = argSide;
+      const token = await getToken();
       const res = await fetch(`/api/debates/${debateId}/comments`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ content: newArg.trim(), side, sources: sources.length > 0 ? JSON.stringify(sources) : undefined, authorName: user?.fullName || user?.firstName || "Anonymous", argType: isOxford && oxfordRound === "Closing Argument" ? "closing" : undefined }),
       });
       if (!res.ok) {

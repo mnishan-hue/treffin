@@ -511,6 +511,21 @@ router.post("/debates/:id/comments", async (req, res) => {
     // Personal attack check (non-blocking warning)
     const personalAttackWarning = detectPersonalAttack(content);
 
+    // Resolve the author's DB record from their Clerk ID so authorId is always correct
+    let resolvedAuthorId = authorId ?? 0;
+    let resolvedAuthorName = authorName;
+    if (actorClerkId) {
+      const [dbUser] = await db
+        .select({ id: usersTable.id, name: usersTable.name })
+        .from(usersTable)
+        .where(eq(usersTable.clerkId, actorClerkId))
+        .limit(1);
+      if (dbUser) {
+        resolvedAuthorId = dbUser.id;
+        resolvedAuthorName = dbUser.name ?? authorName;
+      }
+    }
+
     // For replies, look up the parent's side so the reply lives in the same column
     let resolvedSide = side ?? null;
     if (isReply) {
@@ -529,8 +544,8 @@ router.post("/debates/:id/comments", async (req, res) => {
       .insert(commentsTable)
       .values({
         debateId,
-        authorId: authorId ?? 0,
-        authorName,
+        authorId: resolvedAuthorId,
+        authorName: resolvedAuthorName,
         content,
         side: resolvedSide,
         sources: sources ?? null,
@@ -553,12 +568,12 @@ router.post("/debates/:id/comments", async (req, res) => {
     if (actorClerkId && debate.creatorUserId && debate.creatorUserId !== actorClerkId) {
       try {
         await createNotification({
-          targetDbUserId: 0,
+          targetDbUserId: resolvedAuthorId,
           actorClerkId,
-          actorDisplayName: authorName,
+          actorDisplayName: resolvedAuthorName,
           type: "reply",
           title: "New comment on your debate",
-          body: `${authorName} commented on "${debate.title.substring(0, 50)}${debate.title.length > 50 ? "…" : ""}"`,
+          body: `${resolvedAuthorName} commented on "${debate.title.substring(0, 50)}${debate.title.length > 50 ? "…" : ""}"`,
           targetClerkIdOverride: debate.creatorUserId,
           batchKey: `reply:debate:${debateId}:${debate.creatorUserId}`,
         }, req.log);
