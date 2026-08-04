@@ -15,7 +15,7 @@ export default function SignUpPage() {
     setError("");
     setPending(true);
     localStorage.setItem("treffin_name", name.trim());
-    const result = await authClient.signUp.email({ name: name.trim(), email, password, callbackURL: "/" });
+    const result = await authClient.signUp.email({ name: name.trim(), email, password });
     setPending(false);
     if (result.error) { localStorage.removeItem("treffin_name"); setError(result.error.message ?? "Unable to create your account."); return; }
     setLocation("/");

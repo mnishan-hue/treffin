@@ -31,7 +31,7 @@ export default function SignInPage() {
     event.preventDefault();
     setError("");
     setPending(true);
-    const result = await authClient.signIn.email({ email, password, callbackURL: "/" });
+    const result = await authClient.signIn.email({ email, password });
     setPending(false);
     if (result.error) { setError(result.error.message ?? "Unable to sign in."); return; }
     setLocation("/");
