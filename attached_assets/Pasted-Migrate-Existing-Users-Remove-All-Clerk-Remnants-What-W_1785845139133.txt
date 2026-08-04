@@ -1,0 +1,49 @@
+Migrate Existing Users + Remove All Clerk Remnants
+What & Why
+After the app is running on Better Auth, existing users who signed up via Clerk still have their Clerk IDs stored across 15+ database tables as the primary user identifier. This task: (1) migrates those users into Better Auth's identity system, (2) updates every userId text field across the DB from Clerk IDs to Better Auth IDs, and (3) removes all remaining Clerk code, packages, environment variables, and configuration so the codebase has zero Clerk dependency.
+
+Done looks like
+Every user who had a Clerk account can log in with the same email address via Better Auth's email/password flow (password reset email sent to all affected users)
+All userId fields in the database contain Better Auth UUIDs, not Clerk user_* strings
+The clerkId column is dropped from the users table (or retained read-only as an audit field — decision recorded in replit.md)
+The betterAuthId bridge column in users is fully populated and can serve as the primary linkage
+@clerk/express, @clerk/react, @clerk/themes are absent from all package.json files
+CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, VITE_CLERK_PUBLISHABLE_KEY, CLERK_WEBHOOK_SECRET are removed from Replit secrets and documented as retired
+clerkProxyMiddleware.ts is confirmed deleted (done in Task 2 — verify)
+replit.md updated to reflect Better Auth architecture
+Zero @clerk/ imports anywhere in the repo (grep -r "@clerk" . returns nothing)
+Out of scope
+Any new features — this is purely migration and cleanup
+Admin artifact — no Clerk references existed there
+Steps
+Inventory all Clerk user IDs — Query the live database: SELECT clerk_id, id FROM users WHERE clerk_id IS NOT NULL. Record the count. This is the set of users to migrate.
+Bulk-create Better Auth accounts for existing users — Write a one-time migration script (scripts/migrate-clerk-users.ts) that: reads all rows from users where clerkId IS NOT NULL; for each row, calls auth.api.createUser({ name, email, emailVerified: true }) (using the Better Auth admin API or direct Drizzle insert into ba_user); stores the resulting ba_user.id back into users.betterAuthId; and marks the account as requiring a password reset (Better Auth's email verification / password reset flow). Existing users will receive a "set your password" email via Resend. Run this script once against the production database during the maintenance window.
+Update all userId fields from Clerk IDs to Better Auth IDs — Write a second SQL migration (a Drizzle migration or raw SQL script) that uses the users table as the translation map (users.clerkId → users.betterAuthId) to update every table that stores Clerk user IDs: debate_participant_votes.user_id, debate_opt_outs.user_id, debate_rules_acks.user_id, debates.creator_user_id, debates.verdict_by_user_id, debate_agreements.author_id, debate_agreements.user_id, comment_reactions.user_id, reputation_events.user_id, math_solutions.user_id, math_showdown_votes.user_id, math_annotations.user_id, math_reactions.user_id, math_difficulty_votes.user_id, math_problems.author_id, math_user_profiles.user_id, math_battle_step_arguments (all userId fields). This must run in a transaction.
+Verify data integrity — After the update script, query a sample of debates and verify creator_user_id values match ba_user.id entries. Check reputation_events totals match pre-migration counts. Spot-check one user's full history.
+Drop or archive clerkId column — Decision point: (a) Drop it — ALTER TABLE users DROP COLUMN clerk_id — cleanest, but irreversible. (b) Rename to legacyClerkId — preserves audit trail at zero cost. Recommended: rename to legacy_clerk_id, mark as non-nullable false, and document in replit.md that it is a read-only audit field. Add a Drizzle migration for whichever option is chosen.
+Remove betterAuthId bridge from active code — Once all tables use Better Auth IDs, betterAuthId is no longer a "bridge" — it becomes the primary auth link. Rename it to authUserId in both the schema and all code references to reflect its permanent role.
+Remove remaining Clerk env vars — Delete CLERK_SECRET_KEY, CLERK_PUBLISHABLE_KEY, VITE_CLERK_PUBLISHABLE_KEY, and CLERK_WEBHOOK_SECRET from Replit secrets. Update replit.md to remove Clerk from the environment variable documentation.
+Final dependency sweep — Search for any remaining @clerk/ strings in package.json files and source code. Remove any stragglers. Run pnpm install to clean the lockfile. Confirm pnpm --filter @workspace/treffin run build and pnpm --filter @workspace/api-server run build both succeed with no Clerk references.
+Update replit.md — Document the new auth architecture: Better Auth, email/password flow, bearer token transport, ba_user identity table, authUserId link column, and the new env vars (BETTER_AUTH_SECRET, BETTER_AUTH_BASE_URL).
+Critical risks and mitigation
+Existing users locked out: The migration window is the highest-risk moment. Mitigation: (a) send password-reset emails before the Clerk cutover so users can set their Better Auth password while Clerk still works; (b) keep a Clerk-to-Better-Auth read-only bridge for 48h post-cutover so users who miss the email can still authenticate.
+Missing emails: Some Clerk users may never have verified an email. Query users WHERE email IS NULL before running the script and handle them (skip, or use a placeholder). Better Auth requires an email address.
+ID update script fails mid-run: The transaction in step 3 must be all-or-nothing. If it fails, roll back and investigate before retrying. Do not leave tables in a mixed-ID state.
+Large table update performance: debate_participant_votes and reputation_events may have millions of rows. Run the update in batches (1,000 rows at a time) with LIMIT + OFFSET or a cursor to avoid table locks.
+Relevant files
+lib/db/src/schema/users.ts
+lib/db/src/schema/debate_agreements.ts
+lib/db/src/schema/comment_reactions.ts
+lib/db/src/schema/reputation.ts
+lib/db/src/schema/debates.ts
+lib/db/src/schema/math_solutions.ts
+lib/db/src/schema/math_showdown_votes.ts
+lib/db/src/schema/math_annotations.ts
+lib/db/src/schema/math_reactions.ts
+lib/db/src/schema/math_difficulty_votes.ts
+lib/db/src/schema/math_problems.ts
+lib/db/src/schema/math_user_profiles.ts
+lib/db/src/schema/debate_participant_votes.ts
+lib/db/src/schema/debate_opt_outs.ts
+lib/db/src/schema/debate_rules_acks.ts
+artifacts/api-server/src/lib/better-auth.ts
