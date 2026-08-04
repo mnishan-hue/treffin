@@ -1,45 +1,61 @@
-# [Project name]
+# Treffin
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Full-stack intellectual platform for students and thinkers — live debates, articles, communities, math contests, and reputation system.
 
-## Run & Operate
+## Architecture
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+TypeScript pnpm monorepo with four services:
 
-## Stack
+| Artifact | Port | Preview path | Description |
+|---|---|---|---|
+| `artifacts/treffin` | 18962 | `/` | Main React web app |
+| `artifacts/admin` | 23744 | `/admin/` | Admin panel (bcrypt auth) |
+| `artifacts/api-server` | 8080 | `/api` | Express 5 API server |
+| `artifacts/mockup-sandbox` | 8081 | `/__mockup` | Design preview server |
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+Shared libraries live under `lib/`:
+- `lib/db` — Drizzle ORM schema (47 tables) + migrations against Replit Postgres
+- `lib/api-spec` — OpenAPI spec (`openapi.yaml`, 146 operations) + Orval codegen
+- `lib/api-client-react` — Generated React Query hooks + `customFetch`
+- `lib/api-zod` — Generated Zod validators from the same spec
 
-## Where things live
+## Auth
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- **Main app**: Clerk (Replit-managed tenant). Keys auto-provisioned. `VITE_CLERK_PUBLISHABLE_KEY`, `CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` are set as Replit Secrets.
+- **Admin panel**: custom bcrypt session tokens. Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` (plaintext) or `ADMIN_PASSWORD_HASH` (bcrypt hash) as Replit Secrets.
 
-## Architecture decisions
+## Key commands
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+```bash
+# Run codegen after editing openapi.yaml
+pnpm --filter @workspace/api-spec run codegen
 
-## Product
+# Push DB schema changes to Postgres
+pnpm --filter @workspace/db run push
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+# Type-check all libs
+pnpm run typecheck:libs
+
+# Install packages
+pnpm --filter @workspace/<artifact> add <pkg>
+```
+
+## Environment variables needed
+
+| Secret | Required for |
+|---|---|
+| `CLERK_PUBLISHABLE_KEY` | API server Clerk middleware ✅ set |
+| `CLERK_SECRET_KEY` | API server Clerk middleware ✅ set |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Treffin frontend ClerkProvider ✅ set |
+| `ADMIN_EMAIL` | Admin panel login |
+| `ADMIN_PASSWORD` | Admin panel login (plaintext) |
+| `ADMIN_PASSWORD_HASH` | Admin panel login (bcrypt, preferred over plaintext) |
+| `RESEND_API_KEY` | Email sending via Resend (optional) |
+| `BETTER_AUTH_SECRET` | Better Auth signing secret (required; can reuse `SESSION_SECRET` value — 32 random bytes) |
+| `BETTER_AUTH_BASE_URL` | Full API origin for Better Auth (e.g. `https://treffin-api.onrender.com`); omit in dev, auto-inferred from request |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated frontend origins allowed to make cross-origin auth requests (e.g. `https://thetreffin.com,https://admin.thetreffin.com`); falls back to `ALLOWED_ORIGINS` then `REPLIT_DOMAINS` |
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- Maintain the existing monorepo structure unless explicitly asked to change it.
+- Pre-generated API client files (`lib/api-client-react/src/generated/`, `lib/api-zod/src/generated/`) should be copied from the source repo rather than re-generated from the spec when codegen produces fewer exports than the source.

@@ -100,6 +100,8 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      "better-auth",
+      "better-auth/*",
     ],
     sourcemap: "linked",
     plugins: [

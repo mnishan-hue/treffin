@@ -1,1 +1,2 @@
-- [Treffin repository reference](repo-reference.md) — use the user’s public GitHub repository as the reference for upcoming project-specific work.
+- [Treffin repository reference](repo-reference.md) — use the user's public GitHub repository as the reference for upcoming project-specific work.
+- [Clerk → Better Auth migration](clerk-to-better-auth-migration.md) — patterns, base URL requirement, token getter, and dependency gaps found during the Treffin frontend migration.

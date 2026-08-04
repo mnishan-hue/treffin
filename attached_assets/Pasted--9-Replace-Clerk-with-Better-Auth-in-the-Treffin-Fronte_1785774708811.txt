@@ -1,0 +1,62 @@
+#9 - Replace Clerk with Better Auth in the Treffin Frontend
+What & Why
+Remove every Clerk dependency from the Treffin React app and wire it up to Better Auth's React client. This includes the root provider in App.tsx, the 20+ component files that import useUser / useAuth / useClerk, the token transport layer used in all API fetch calls, the sign-in and sign-up page routes, and the proxy configuration. The admin app has zero Clerk dependencies and is not touched.
+
+Done looks like
+@clerk/react and @clerk/themes are removed from artifacts/treffin/package.json
+VITE_CLERK_PUBLISHABLE_KEY and VITE_CLERK_PROXY_URL are no longer referenced anywhere in the frontend source
+App.tsx uses a Better Auth session provider (or equivalent React context) instead of ClerkProvider
+A single useSession() / useAuthUser() hook from the Better Auth React client replaces all useUser + useAuth + useClerk imports — existing call sites change one import line; the returned user shape (id, name, email, image) maps cleanly to what the components already consume
+getToken() → replaced by Better Auth's authClient.getSession().data?.session.token (or the bearer plugin's token accessor), keeping the same Authorization: Bearer <token> header pattern already used in all fetch calls
+openSignIn() calls in debate-room and other components are replaced with useLocation-based redirect to /sign-in
+New /sign-in and /sign-up pages built with Better Auth client's signIn.email() and signUp.email() methods — minimal, styled to match existing Treffin dark theme
+The UserSyncer component in App.tsx is rewritten to use the Better Auth session user instead of Clerk user data
+Show / RequireAuth route-guard patterns use Better Auth session state (loading → redirect to /sign-in)
+signOut() in top-navbar/profile uses authClient.signOut()
+The Vite dev server no longer errors on missing VITE_CLERK_PUBLISHABLE_KEY
+pnpm --filter @workspace/treffin run dev starts cleanly; sign-in, sign-up, and sign-out flows work end-to-end
+Out of scope
+The admin artifact (artifacts/admin) — no Clerk dependencies, no changes
+Database user ID migration (Task 4)
+Any backend changes (Task 2 must be complete before this task)
+Steps
+Install Better Auth React client — Add better-auth (already in api-server) or specifically the better-auth/client and better-auth/react sub-paths to artifacts/treffin/package.json. Run pnpm install. Confirm the client package bundles cleanly with Vite.
+Create authClient singleton — Create artifacts/treffin/src/lib/auth-client.ts. Instantiate createAuthClient({ baseURL: import.meta.env.VITE_API_BASE_URL + '/auth' }) with the bearerClient() plugin (mirrors the server-side bearer plugin). Export authClient, and re-export convenience hooks (useSession) if the client provides them. This is the single import point for all auth state.
+Rewrite App.tsx provider and root wiring — Remove ClerkProvider, publishableKeyFromHost, VITE_CLERK_PROXY_URL, the Clerk appearance/localization config block, and the hard-fail on missing publishable key. Wrap the app in a simple React context that exposes the Better Auth session. Keep all existing route definitions. Remove ClerkProvider from the JSX. The VITE_CLERK_PUBLISHABLE_KEY env var reference can be deleted.
+Rewrite UserSyncer — Replace the Clerk-based UserSyncer component (currently syncs Clerk user data to the API on sign-in) with a Better Auth equivalent that watches useSession() and, when a session appears, calls the API's /api/users/me (which triggers jitProvisionUser on the server) to ensure the Treffin profile exists.
+Replace auth hooks across all component files — For every file that currently imports useUser, useAuth, or useClerk (20+ files listed below), replace the import with import { useSession } from "@/lib/auth-client" and update usage: user.id replaces user?.id, user.name / user.image work the same, isSignedIn becomes !!session, isLoaded becomes !sessionLoading. The shape change is minimal because the components primarily use user.id, user.fullName || user.firstName, and user.imageUrl.
+Replace getToken() with Better Auth token accessor — The current pattern const token = await getToken(); fetch(url, { headers: { Authorization: \Bearer ${token}` } })appears in ~25 fetch call sites. ReplacegetTokenwith a thin wrapper:export const getToken = () => authClient.getSession().then(s => s.data?.session?.token ?? null). This is a drop-in replacement — the function signature stays the same (async () => string | null`) so none of the individual fetch calls need to change.
+Replace openSignIn() — Search for all openSignIn() calls (from useClerk). Replace each with setLocation("/sign-in") (already available via useLocation from wouter). The Clerk modal sign-in is replaced by a full-page sign-in route.
+Build /sign-in and /sign-up pages — Create artifacts/treffin/src/pages/sign-in.tsx and sign-up.tsx. Each page has an email + password form that calls authClient.signIn.email() or authClient.signUp.email(). On success, redirect to /. On error, display the Better Auth error message. Style to match the existing Treffin dark card aesthetic.
+Update RequireAuth / Show guards — Replace Clerk's <SignedIn> / <SignedOut> / <RedirectToSignIn> with session-based checks from the Better Auth context: redirect to /sign-in when !session && !sessionLoading.
+Remove Clerk packages and env vars — Remove @clerk/react and @clerk/themes from package.json. Remove VITE_CLERK_PUBLISHABLE_KEY and VITE_CLERK_PROXY_URL from any .env files or Vite config. Confirm no @clerk/ import remains in the treffin source tree.
+Files with useUser / useAuth / useClerk imports to update (step 5)
+All of these need only their import line changed; the component logic that uses user.id, user.fullName, user.imageUrl, and isSignedIn maps directly to the Better Auth session shape:
+
+artifacts/treffin/src/context/app-context.tsx
+artifacts/treffin/src/components/banner-queue.tsx
+artifacts/treffin/src/components/feed/post-card.tsx
+artifacts/treffin/src/components/feed/post-composer.tsx
+artifacts/treffin/src/components/layout/bottom-nav.tsx
+artifacts/treffin/src/components/layout/sidebar-left.tsx
+artifacts/treffin/src/components/layout/top-navbar.tsx
+artifacts/treffin/src/components/onboarding/interest-onboarding-modal.tsx
+artifacts/treffin/src/components/communities/create-community-modal.tsx
+artifacts/treffin/src/pages/about.tsx
+artifacts/treffin/src/pages/analytics.tsx
+artifacts/treffin/src/pages/article-detail.tsx
+artifacts/treffin/src/pages/community-room.tsx
+artifacts/treffin/src/pages/communities.tsx
+artifacts/treffin/src/pages/debate-room.tsx
+artifacts/treffin/src/pages/elegance-battle.tsx
+artifacts/treffin/src/pages/home.tsx
+artifacts/treffin/src/pages/notifications.tsx
+artifacts/treffin/src/pages/profile.tsx
+Relevant files
+artifacts/treffin/src/App.tsx
+artifacts/treffin/package.json
+artifacts/treffin/vite.config.ts
+artifacts/treffin/src/lib/api-url.ts
+Dependencies
+
+Replace Clerk with Better Auth in the API server
