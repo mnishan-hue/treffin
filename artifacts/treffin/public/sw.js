@@ -1,4 +1,4 @@
-const CACHE_NAME = "treffin-v1";
+const CACHE_NAME = "treffin-v2";
 const STATIC_ASSETS = ["/", "/favicon.png", "/manifest.json"];
 
 self.addEventListener("install", (event) => {
