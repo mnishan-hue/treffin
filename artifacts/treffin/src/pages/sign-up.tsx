@@ -22,12 +22,12 @@ export default function SignUpPage() {
     setLocation("/");
   }
 
-  async function signInWithGoogle() {
+  function signInWithGoogle() {
     setGooglePending(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: window.location.origin,
-    });
+    // Direct browser navigation avoids the cross-origin fetch cookie partition
+    // issue that causes state_mismatch on the OAuth callback.
+    const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+    window.location.href = `${apiBase}/api/auth/signin/social?provider=google&callbackURL=${encodeURIComponent(window.location.origin)}`;
   }
 
   return (

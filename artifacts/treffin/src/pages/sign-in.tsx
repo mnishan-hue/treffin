@@ -47,13 +47,15 @@ export default function SignInPage() {
     setLocation("/");
   }
 
-  async function signInWithGoogle() {
+  function signInWithGoogle() {
     setGooglePending(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: window.location.origin,
-    });
-    // page will redirect — no need to reset state
+    // Navigate the browser directly to the BA OAuth start URL instead of
+    // using authClient.signIn.social() (a cross-origin fetch). Chrome
+    // partitions cookies set via cross-origin XHR, so the state cookie
+    // never makes it back to the callback → state_mismatch. A top-level
+    // navigation means the cookie is first-party for treffin-api.onrender.com.
+    const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+    window.location.href = `${apiBase}/api/auth/signin/social?provider=google&callbackURL=${encodeURIComponent(window.location.origin)}`;
   }
 
   return (
