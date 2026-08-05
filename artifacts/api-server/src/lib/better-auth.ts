@@ -76,6 +76,12 @@ export const auth = betterAuth({
     },
   },
 
+  // When OAuth fails (e.g. account_not_linked), redirect back to the
+  // frontend sign-in page with ?error=... instead of landing on the API root.
+  pages: {
+    error: `${process.env.FRONTEND_URL ?? "https://thetreffin.com"}/sign-in`,
+  },
+
   // Allow Google OAuth to link to an existing email/password account.
   // Without this, signing in with a Google account whose email already
   // exists in ba_user (from a prior email signup) returns account_not_linked.

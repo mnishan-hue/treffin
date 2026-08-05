@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { authClient } from "@/lib/auth-client";
 
 function AuthShell({ children, title, subtitle }: { children: React.ReactNode; title: string; subtitle: string }) {
@@ -20,8 +20,17 @@ function AuthShell({ children, title, subtitle }: { children: React.ReactNode; t
   );
 }
 
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  account_not_linked: "This Google account isn't linked yet. Sign in with your email and password first, then link Google from your profile.",
+  OAuthCallbackError: "Google sign-in was cancelled or failed. Please try again.",
+  OAuthSignin: "Could not start Google sign-in. Please try again.",
+};
+
 export default function SignInPage() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
+  const oauthError = new URLSearchParams(search).get("error");
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -50,6 +59,13 @@ export default function SignInPage() {
   return (
     <AuthShell title="Welcome back" subtitle="Sign in to your Treffin account">
       <div className="mt-6 flex flex-col gap-4">
+        {/* OAuth error banner */}
+        {oauthError && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            {OAUTH_ERROR_MESSAGES[oauthError] ?? "Google sign-in failed. Please try again or use email and password."}
+          </div>
+        )}
+
         {/* Google */}
         <button
           type="button"
