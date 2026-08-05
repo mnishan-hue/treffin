@@ -67,6 +67,26 @@ export const auth = betterAuth({
     enabled: true,
   },
 
+  // Google OAuth — credentials come from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+  // set in the Render environment. Leave both empty to disable Google auth.
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+    },
+  },
+
+  // Frontend (thetreffin.com) and API (treffin-api.onrender.com) are on
+  // different domains. Browsers block cross-origin cookies unless the server
+  // explicitly opts in with SameSite=None + Secure.
+  advanced: {
+    defaultCookieAttributes: {
+      sameSite: "none",
+      secure: true,
+      httpOnly: true,
+    },
+  },
+
   plugins: [
     // Converts "Authorization: Bearer <session-token>" to a session cookie
     // so the frontend's existing fetch pattern works without change.
