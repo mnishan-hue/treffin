@@ -76,6 +76,14 @@ export const auth = betterAuth({
     },
   },
 
+  // Allow Google OAuth to link to an existing email/password account.
+  // Without this, signing in with a Google account whose email already
+  // exists in ba_user (from a prior email signup) returns account_not_linked.
+  accountLinking: {
+    enabled: true,
+    trustedProviders: ["google"],
+  },
+
   // Frontend (thetreffin.com) and API (treffin-api.onrender.com) are on
   // different domains. Browsers block cross-origin cookies unless the server
   // explicitly opts in with SameSite=None + Secure.
