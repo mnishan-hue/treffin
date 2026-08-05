@@ -82,7 +82,79 @@ app.use(
   }),
 );
 
-// Better Auth handler — mounted before JSON parsing so auth routes are
+// ── Google OAuth first-party redirect ────────────────────────────────────────
+// The frontend navigates here via window.location.href (top-level navigation)
+// with ?provider=google&callbackURL=https://thetreffin.com.
+//
+// Why we intercept instead of letting Better Auth handle the GET directly:
+//   Better Auth's /signin/social only fully processes state when called as
+//   a POST (JSON body). When called via GET the state cookie may not be
+//   properly set, leading to state_mismatch on the Google callback.
+//
+// Our fix: synthesise a POST internally, capture the state cookie Better Auth
+// writes, set it on our response (first-party to treffin-api.onrender.com),
+// then redirect the browser to Google. When Google redirects back the cookie
+// is present first-party → state validates → OAuth succeeds.
+app.get("/api/auth/signin/social", async (req, res) => {
+  const provider = (req.query.provider as string) || "google";
+  const callbackURL = (req.query.callbackURL as string) ||
+    process.env.FRONTEND_URL ||
+    "https://thetreffin.com";
+
+  try {
+    const baseUrl = (
+      process.env.BETTER_AUTH_BASE_URL ||
+      `${req.protocol}://${req.get("host")}`
+    ).replace(/\/+$/, "");
+
+    // Build a synthetic POST that Better Auth can handle natively.
+    // Forward only safe, non-hop-by-hop headers; always force JSON content-type.
+    const fwdHeaders: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    for (const hdr of ["host", "user-agent", "x-forwarded-for", "x-forwarded-proto", "cookie"] as const) {
+      const val = req.get(hdr);
+      if (val) fwdHeaders[hdr] = val;
+    }
+
+    const syntheticReq = new Request(`${baseUrl}/api/auth/signin/social`, {
+      method: "POST",
+      headers: fwdHeaders,
+      body: JSON.stringify({ provider, callbackURL }),
+    });
+
+    const response = await auth.handler(syntheticReq);
+
+    // Forward every Set-Cookie header so the state cookie lands first-party.
+    // Use getSetCookie() (Node 18.14+) to preserve individual cookie strings;
+    // fall back to the combined header if not available.
+    const setCookies: string[] =
+      typeof (response.headers as { getSetCookie?: () => string[] }).getSetCookie === "function"
+        ? (response.headers as { getSetCookie: () => string[] }).getSetCookie()
+        : response.headers.get("set-cookie")
+          ? [response.headers.get("set-cookie")!]
+          : [];
+
+    if (setCookies.length) res.setHeader("Set-Cookie", setCookies);
+
+    // Better Auth returns { url } JSON for social initiation.
+    const body = (await response.json()) as { url?: string; error?: string };
+
+    if (body.url) return res.redirect(body.url);
+
+    logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
+    const errMsg = body.error ? encodeURIComponent(body.error) : "OAuthSignin";
+    return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    logger.error({ err }, "Social OAuth initiation error");
+    return res.redirect(
+      `${callbackURL}/sign-in?error=${encodeURIComponent(detail)}`,
+    );
+  }
+});
+
+// Better Auth handler — mounted after the custom GET above so auth routes are
 // handled directly (Better Auth manages its own body parsing).
 app.all("/api/auth/*splat", betterAuthHandler);
 
