@@ -137,14 +137,28 @@ app.get("/api/auth/signin/social", async (req, res) => {
 
     if (setCookies.length) res.setHeader("Set-Cookie", setCookies);
 
-    // Better Auth returns { url } JSON for social initiation.
-    const body = (await response.json()) as { url?: string; error?: string };
+    // Better Auth may respond with either:
+    //   • 302 redirect directly to Google (Location header, empty body)
+    //   • 200 JSON { url: "https://accounts.google.com/..." }
+    const location = response.headers.get("location");
+    if (location) return res.redirect(location);
 
-    if (body.url) return res.redirect(body.url);
+    const text = await response.text();
+    let target: string | undefined;
+    try {
+      const body = JSON.parse(text) as { url?: string; error?: string };
+      target = body.url;
+      if (!target) {
+        const errMsg = encodeURIComponent(body.error ?? "OAuthSignin");
+        logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
+        return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
+      }
+    } catch {
+      logger.error({ text, status: response.status }, "Better Auth response was not JSON");
+      return res.redirect(`${callbackURL}/sign-in?error=OAuthSignin`);
+    }
 
-    logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
-    const errMsg = body.error ? encodeURIComponent(body.error) : "OAuthSignin";
-    return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
+    return res.redirect(target);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Social OAuth initiation error");
