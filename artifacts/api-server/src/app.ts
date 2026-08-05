@@ -97,74 +97,51 @@ app.use(
 // is present first-party → state validates → OAuth succeeds.
 app.get("/api/auth/signin/social", async (req, res) => {
   const provider = (req.query.provider as string) || "google";
-  const callbackURL = (req.query.callbackURL as string) ||
+  const callbackURL =
+    (req.query.callbackURL as string) ||
     process.env.FRONTEND_URL ||
     "https://thetreffin.com";
 
   try {
-    const baseUrl = (
-      process.env.BETTER_AUTH_BASE_URL ||
-      `${req.protocol}://${req.get("host")}`
-    ).replace(/\/+$/, "");
+    // auth.api.signInSocial is the typed server-side API — avoids synthetic
+    // Request body-stream issues that plagued auth.handler().
+    // asResponse:true gives us the full Response so we can forward Set-Cookie.
+    const response = (await auth.api.signInSocial({
+      body: { provider: provider as "google", callbackURL },
+      headers: fromNodeHeaders(req.headers),
+      asResponse: true,
+    })) as Response;
 
-    // Build a synthetic POST that Better Auth can handle natively.
-    // Forward only safe, non-hop-by-hop headers; always force JSON content-type.
-    const fwdHeaders: Record<string, string> = {
-      "content-type": "application/json",
-    };
-    for (const hdr of ["host", "user-agent", "x-forwarded-for", "x-forwarded-proto", "cookie"] as const) {
-      const val = req.get(hdr);
-      if (val) fwdHeaders[hdr] = val;
-    }
-
-    const syntheticReq = new Request(`${baseUrl}/api/auth/signin/social`, {
-      method: "POST",
-      headers: fwdHeaders,
-      body: JSON.stringify({ provider, callbackURL }),
-    });
-
-    const response = await auth.handler(syntheticReq);
-
-    // Forward every Set-Cookie header so the state cookie lands first-party.
-    // Use getSetCookie() (Node 18.14+) to preserve individual cookie strings;
-    // fall back to the combined header if not available.
+    // Forward every Set-Cookie so the state cookie lands first-party on
+    // treffin-api.onrender.com before the browser ever visits Google.
+    const h = response.headers as Headers & { getSetCookie?: () => string[] };
     const setCookies: string[] =
-      typeof (response.headers as { getSetCookie?: () => string[] }).getSetCookie === "function"
-        ? (response.headers as { getSetCookie: () => string[] }).getSetCookie()
-        : response.headers.get("set-cookie")
-          ? [response.headers.get("set-cookie")!]
+      typeof h.getSetCookie === "function"
+        ? h.getSetCookie()
+        : h.get("set-cookie")
+          ? [h.get("set-cookie")!]
           : [];
-
     if (setCookies.length) res.setHeader("Set-Cookie", setCookies);
 
-    // Better Auth may respond with either:
-    //   • 302 redirect directly to Google (Location header, empty body)
-    //   • 200 JSON { url: "https://accounts.google.com/..." }
+    // Better Auth returns either a 302 (Location header) or 200 JSON { url }.
     const location = response.headers.get("location");
     if (location) return res.redirect(location);
 
     const text = await response.text();
-    let target: string | undefined;
     try {
       const body = JSON.parse(text) as { url?: string; error?: string };
-      target = body.url;
-      if (!target) {
-        const errMsg = encodeURIComponent(body.error ?? "OAuthSignin");
-        logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
-        return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
-      }
+      if (body.url) return res.redirect(body.url);
+      const errMsg = encodeURIComponent(body.error ?? "OAuthSignin");
+      logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
+      return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
     } catch {
-      logger.error({ text, status: response.status }, "Better Auth response was not JSON");
+      logger.error({ text, status: response.status }, "Better Auth response not JSON");
       return res.redirect(`${callbackURL}/sign-in?error=OAuthSignin`);
     }
-
-    return res.redirect(target);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     logger.error({ err }, "Social OAuth initiation error");
-    return res.redirect(
-      `${callbackURL}/sign-in?error=${encodeURIComponent(detail)}`,
-    );
+    return res.redirect(`${callbackURL}/sign-in?error=${encodeURIComponent(detail)}`);
   }
 });
 
