@@ -18,7 +18,8 @@ import { InstallAppPrompt } from "@/components/install-app-prompt";
 import { CookieBanner } from "@/components/cookie-banner";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { ProfileGuestView } from "@/components/profile-guest-view";
-import { authClient, getToken, useSession, SessionProvider } from "@/lib/auth-client";
+import { authClient, getToken, useSession } from "@/lib/auth-client";
+import { SessionProvider } from "@/lib/session-provider";
 
 import Home from "@/pages/home";
 import Debates from "@/pages/debates";

@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
-import { createContext, useContext, type ReactNode } from "react";
+import { useContext } from "react";
+import { SessionContext } from "./session-context";
 
 // Must be an absolute URL. Fall back to the current origin so the auth client
 // works in the Replit preview (and locally) even when VITE_API_BASE_URL is not
@@ -13,30 +14,6 @@ export const authClient = createAuthClient({
     credentials: "include",
   },
 });
-
-// ---------------------------------------------------------------------------
-// Session singleton via React context
-//
-// Better Auth's useSession() makes an independent HTTP call for every component
-// that invokes it. With 40+ components on a page that floods the API with
-// simultaneous GET /api/auth/get-session requests → 429s.
-//
-// Solution: one real BA call lives in <SessionProvider> at the app root.
-// The useSession() hook exported below reads from context — zero extra network
-// requests regardless of how many components call it.
-// ---------------------------------------------------------------------------
-
-type BASession = ReturnType<typeof authClient.useSession>;
-const SessionContext = createContext<BASession | null>(null);
-
-export function SessionProvider({ children }: { children: ReactNode }) {
-  const session = authClient.useSession();
-  return (
-    <SessionContext.Provider value={session}>
-      {children}
-    </SessionContext.Provider>
-  );
-}
 
 export type AuthUser = {
   id: string;
