@@ -3,7 +3,8 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useSession, authClient } from "@/lib/auth-client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatNumber, cn } from "@/lib/utils";
-import { LogOut, BookOpen, MessageSquare, Award, Shield, FileText, Pencil, Check, X, Trophy, Zap, Trash2, ClipboardCheck, Clock, CheckCircle, XCircle, Target, Plus, RotateCcw } from "lucide-react";
+import { LogOut, BookOpen, MessageSquare, Award, Shield, FileText, Pencil, Check, X, Trophy, Zap, Trash2, ClipboardCheck, Clock, CheckCircle, XCircle, Target, Plus, RotateCcw, Download, Share2 } from "lucide-react";
+import { useInstallPWA } from "@/lib/use-install-pwa";
 import { useLocation, Link, useParams } from "wouter";
 import { useGetFeed, useGetReputation, useGetCurrentUser, useGetMyReviewRequests, useGetUserPositions, useCreateUserPosition, useGetTopics, UserPositionGroup, useGetUserDna, useGetUser, getGetUserQueryKey } from "@workspace/api-client-react";
 import { PostCard } from "@/components/feed/post-card";
@@ -530,6 +531,8 @@ function OwnProfile() {
 
   const { data: currentUser } = useGetCurrentUser();
   const myDbId = currentUser?.id;
+  const { isInstalled, platform, canAutoInstall, install } = useInstallPWA();
+  const [showIosHint, setShowIosHint] = useState(false);
   const { data: dnaData, isLoading: dnaLoading } = useGetUserDna(myDbId ?? 0, { query: { enabled: !!myDbId } as never });
 
   const { data: feed, isLoading: feedLoading } = useGetFeed(
@@ -732,6 +735,37 @@ function OwnProfile() {
             <div className="flex justify-center mt-5 pt-5 border-t border-border">
               <div className="text-center"><div className={cn("text-lg font-bold", level.color)}>{formatNumber(totalRep)}</div><div className="text-xs text-muted-foreground">Reputation</div></div>
             </div>
+
+            {/* ── Download / Install Treffin ─────────────────────────────── */}
+            {!isInstalled && platform !== "unsupported" && (
+              <div className="mt-4 pt-4 border-t border-border/40">
+                {showIosHint ? (
+                  <div className="flex flex-col gap-1.5 text-center">
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Tap <Share2 className="inline w-3 h-3 align-middle" /> <strong className="text-foreground">Share</strong> in your browser,
+                      then <strong className="text-foreground">Add to Home Screen</strong>.
+                    </p>
+                    <button
+                      onClick={() => setShowIosHint(false)}
+                      className="text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    >
+                      Got it
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      if (platform === "ios") { setShowIosHint(true); return; }
+                      if (canAutoInstall) { await install(); }
+                    }}
+                    className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground/70 hover:text-primary hover:bg-primary/5 rounded-lg py-2 transition-colors"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    Download Treffin app
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
