@@ -213,7 +213,7 @@ function BattleCard({ debate, rank }: { debate: Debate; rank: number }) {
                   padding: "4px 12px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 800,
                   background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.35)", color: "#c4b5fd",
                 }}>
-                  ⚔ First Vote
+                  ⚔ Battle
                 </span>
               </div>
             )}

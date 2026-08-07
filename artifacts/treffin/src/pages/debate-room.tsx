@@ -927,9 +927,13 @@ export default function DebateRoom() {
           queryClient.invalidateQueries({ queryKey: getGetDebateQueryKey(debateId) });
           toast({ title: `Voted ${vote === "support" ? "in support" : "against"}!` });
           setTimeout(() => setShowVoteAnnotationPrompt(true), 600);
-          const isFirstVote = !localStorage.getItem("treffin_first_vote");
+          // Key is per-user so multiple accounts on the same device each
+          // get their own first-vote celebration (not just whichever user
+          // happened to vote first on this device).
+          const voteKey = `treffin_first_vote_${user?.id ?? "guest"}`;
+          const isFirstVote = !localStorage.getItem(voteKey);
           if (isFirstVote) {
-            localStorage.setItem("treffin_first_vote", "1");
+            localStorage.setItem(voteKey, "1");
             triggerRep(10, "vote");
             setTimeout(() => setShowCelebration(true), 350);
           }
