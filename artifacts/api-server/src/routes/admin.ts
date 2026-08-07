@@ -31,12 +31,15 @@ import {
   debateCreatorReportsTable,
   debateParticipantVotesTable,
   notificationsTable,
+  appSettingsTable,
   baUser,
 } from "@workspace/db";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
 import { createNotification, notifyUser } from "../lib/notify";
 import { createHash, timingSafeEqual } from "crypto";
-import { awardRep } from "./reputation";
+import { awardRep, getEliteThreshold, setEliteThreshold } from "./reputation";
+import { sendPushToAll } from "../lib/push";
+import { appSettingsTable } from "@workspace/db";
 import bcrypt from "bcryptjs";
 
 const adminEmail    = process.env["ADMIN_EMAIL"];
@@ -2184,6 +2187,76 @@ router.delete("/admin/debates/:debateId/arguments/:commentId", async (req, res) 
   } catch (err) {
     req.log.error({ err }, "Failed to admin-remove argument");
     res.status(500).json({ error: "Failed to remove argument" });
+  }
+});
+
+// ── Elite Thinker threshold settings ────────────────────────────────────────
+
+router.get("/admin/settings/elite-threshold", async (_req, res) => {
+  res.json({ threshold: getEliteThreshold() });
+});
+
+router.put("/admin/settings/elite-threshold", async (req, res) => {
+  const raw = req.body?.threshold;
+  const threshold = typeof raw === "number" ? raw : parseInt(raw, 10);
+  if (!threshold || isNaN(threshold) || threshold < 1 || threshold > 1_000_000) {
+    res.status(400).json({ error: "threshold must be a whole number between 1 and 1,000,000" });
+    return;
+  }
+
+  const oldThreshold = getEliteThreshold();
+
+  try {
+    // 1. Persist to DB (upsert)
+    await db
+      .insert(appSettingsTable)
+      .values({ key: "elite_thinker_threshold", value: String(threshold), updatedBy: "admin" })
+      .onConflictDoUpdate({
+        target: appSettingsTable.key,
+        set: { value: String(threshold), updatedAt: new Date(), updatedBy: "admin" },
+      });
+
+    // 2. Update in-memory cache so titleForScore() is immediately consistent
+    setEliteThreshold(threshold);
+
+    // 3. Audit log
+    await db.insert(modAuditLogTable).values({
+      action: "update_elite_threshold",
+      targetType: "setting",
+      reason: `Elite Thinker threshold changed ${oldThreshold.toLocaleString()} → ${threshold.toLocaleString()} rep`,
+    });
+
+    // 4. Broadcast in-app notification to every user
+    const title = "🏆 Elite Thinker Threshold Updated";
+    const body = `The Elite Thinker reputation threshold is now ${threshold.toLocaleString()} rep. Keep contributing to reach the top!`;
+
+    const allUsers = await db.select({ id: usersTable.id }).from(usersTable);
+    if (allUsers.length > 0) {
+      // Insert in chunks of 500 to avoid hitting Postgres parameter limits
+      const CHUNK = 500;
+      for (let i = 0; i < allUsers.length; i += CHUNK) {
+        await db.insert(notificationsTable).values(
+          allUsers.slice(i, i + CHUNK).map((u) => ({
+            userId: u.id,
+            type: "system_announcement",
+            title,
+            body,
+            actorName: "Treffin",
+            actorInitials: "TR",
+            count: 1,
+            batchKey: `elite_threshold_${Date.now()}`,
+          }))
+        );
+      }
+    }
+
+    // 5. Web push broadcast (best-effort, non-blocking)
+    void sendPushToAll({ title, body, url: "/notifications", tag: "elite_threshold" }, req.log);
+
+    res.json({ ok: true, threshold, notified: allUsers.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to update elite threshold");
+    res.status(500).json({ error: "Failed to update threshold" });
   }
 });
 

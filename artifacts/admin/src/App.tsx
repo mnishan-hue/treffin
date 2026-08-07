@@ -24,6 +24,7 @@ import MathPotw from "@/pages/math-potw";
 import MathContests from "@/pages/math-contests";
 import DatabaseTools from "@/pages/database-tools";
 import CreatorReports from "@/pages/creator-reports";
+import ReputationSettings from "@/pages/reputation-settings";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,6 +55,7 @@ const SECTION_LABELS: Record<Section, string> = {
   "math-contests": "Math Contests",
   "database-tools": "Database Tools",
   "creator-reports": "Creator Reports",
+  "reputation-settings": "Reputation Settings",
 };
 
 function AdminShell() {
@@ -123,6 +125,7 @@ function AdminShell() {
       case "math-contests": return <MathContests />;
       case "database-tools": return <DatabaseTools />;
       case "creator-reports": return <CreatorReports />;
+      case "reputation-settings": return <ReputationSettings />;
       default: return <Analytics onNavigate={setSection} />;
     }
   };

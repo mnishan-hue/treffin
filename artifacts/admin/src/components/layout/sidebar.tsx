@@ -17,7 +17,8 @@ export type Section =
   | "math-potw"
   | "math-contests"
   | "database-tools"
-  | "creator-reports";
+  | "creator-reports"
+  | "reputation-settings";
 
 interface NavItem {
   id: Section;
@@ -58,6 +59,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Platform",
     items: [
       { id: "users", label: "Users", icon: <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /> },
+      { id: "reputation-settings", label: "Reputation Settings", icon: <Icon path="M12 15l-3 5H6l3-5H6l6-10 6 10h-3l3 5h-3l-3-5z" /> },
       { id: "outcomes", label: "Debate Outcomes", icon: <Icon path="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" /> },
       { id: "creator-reports", label: "Creator Reports", icon: <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /> },
       { id: "daily-question", label: "Daily Question", icon: <Icon path="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /> },

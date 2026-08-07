@@ -1,7 +1,41 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { reputationEventsTable, usersTable, notificationsTable } from "@workspace/db";
+import { reputationEventsTable, usersTable, notificationsTable, appSettingsTable } from "@workspace/db";
 import { eq, desc, sql } from "drizzle-orm";
+
+// ---------------------------------------------------------------------------
+// Elite Thinker threshold — loaded from DB at startup, cached in memory.
+// Use getEliteThreshold() everywhere; call setEliteThreshold() when admin
+// updates it so the change takes effect instantly without a server restart.
+// ---------------------------------------------------------------------------
+const SETTING_KEY = "elite_thinker_threshold";
+const DEFAULT_THRESHOLD = 1000;
+
+let _eliteThreshold = DEFAULT_THRESHOLD;
+
+/** Returns the cached Elite Thinker reputation threshold. */
+export function getEliteThreshold(): number {
+  return _eliteThreshold;
+}
+
+/** Updates the in-memory cache (called after DB write by the admin route). */
+export function setEliteThreshold(value: number): void {
+  _eliteThreshold = value;
+}
+
+/** Initialise the threshold from the DB. Call once during server startup. */
+export async function loadEliteThreshold(): Promise<void> {
+  try {
+    const [row] = await db
+      .select({ value: appSettingsTable.value })
+      .from(appSettingsTable)
+      .where(eq(appSettingsTable.key, SETTING_KEY))
+      .limit(1);
+    if (row) _eliteThreshold = Math.max(1, parseInt(row.value, 10) || DEFAULT_THRESHOLD);
+  } catch {
+    // DB might not have the table yet (before first migration) — use default.
+  }
+}
 
 
 
@@ -25,10 +59,12 @@ export const REP_VALUES: Record<string, number> = {
 };
 
 function titleForScore(score: number): string {
-  if (score >= 1000) return "Elite Thinker";
-  if (score >= 600)  return "Intellectual";
-  if (score >= 300)  return "Scholar";
-  if (score >= 100)  return "Thinker";
+  const elite = _eliteThreshold;
+  // Tiers below Elite Thinker are evenly distributed at 10%/30%/60% of the threshold.
+  if (score >= elite)              return "Elite Thinker";
+  if (score >= Math.floor(elite * 0.6)) return "Intellectual";
+  if (score >= Math.floor(elite * 0.3)) return "Scholar";
+  if (score >= Math.floor(elite * 0.1)) return "Thinker";
   return "Novice";
 }
 

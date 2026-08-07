@@ -41,6 +41,49 @@ export interface PushPayload {
  * Expired or unregistered subscriptions (410/404) are cleaned up automatically.
  * Always resolves — never throws; errors are logged and skipped per subscription.
  */
+/**
+ * Broadcast a Web Push notification to ALL registered subscriptions.
+ * Used for platform-wide announcements (e.g. Elite Thinker threshold change).
+ * Always resolves — errors per subscription are logged and skipped.
+ */
+export async function sendPushToAll(
+  payload: PushPayload,
+  log: Logger,
+): Promise<void> {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+
+  let subs: typeof pushSubscriptionsTable.$inferSelect[];
+  try {
+    subs = await db.select().from(pushSubscriptionsTable);
+  } catch (err) {
+    log.warn({ err }, "[push] sendPushToAll: failed to fetch subscriptions");
+    return;
+  }
+
+  if (subs.length === 0) return;
+
+  await Promise.allSettled(
+    subs.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify(payload),
+          { urgency: "normal", TTL: 60 * 60 * 24 },
+        );
+      } catch (err: unknown) {
+        const status = (err as { statusCode?: number })?.statusCode;
+        if (status === 404 || status === 410) {
+          await db.delete(pushSubscriptionsTable)
+            .where(eq(pushSubscriptionsTable.endpoint, sub.endpoint))
+            .catch(() => {});
+        } else {
+          log.warn({ err, endpoint: sub.endpoint }, "[push] broadcast sendNotification failed");
+        }
+      }
+    })
+  );
+}
+
 export async function sendPushToUser(
   userId: string,
   payload: PushPayload,
