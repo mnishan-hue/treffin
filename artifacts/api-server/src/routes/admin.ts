@@ -34,7 +34,7 @@ import {
   appSettingsTable,
   baUser,
 } from "@workspace/db";
-import { eq, desc, sql, and, gte } from "drizzle-orm";
+import { eq, desc, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { createNotification, notifyUser } from "../lib/notify";
 import { createHash, timingSafeEqual } from "crypto";
 import { awardRep, getEliteThreshold, setEliteThreshold } from "./reputation";
@@ -976,6 +976,87 @@ router.patch("/admin/users/:id/suspend", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to suspend/unsuspend user");
     res.status(500).json({ error: "Failed to update user suspension" });
+  }
+});
+
+// ── Delete single user ───────────────────────────────────────────────────────
+router.delete("/admin/users/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+    // Remove related data — best-effort, non-blocking
+    await Promise.allSettled([
+      db.delete(postsTable).where(eq(postsTable.authorId, id)),
+      user.clerkId
+        ? db.delete(reputationEventsTable).where(eq(reputationEventsTable.userId, user.clerkId))
+        : Promise.resolve(),
+      user.clerkId
+        ? db.delete(notificationsTable).where(eq(notificationsTable.userId, user.clerkId))
+        : Promise.resolve(),
+      user.betterAuthId
+        ? db.delete(baUser).where(eq(baUser.id, user.betterAuthId))
+        : Promise.resolve(),
+    ]);
+
+    await db.delete(usersTable).where(eq(usersTable.id, id));
+
+    await db.insert(modAuditLogTable).values({
+      action: "admin_delete_user",
+      targetType: "user",
+      targetId: id,
+      reason: `Admin permanently deleted user "${user.name}" (id: ${id})`,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete user");
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+// ── Delete all sample / seed users (those with no betterAuthId) ──────────────
+router.delete("/admin/users/sample", async (req, res) => {
+  try {
+    const sampleUsers = await db
+      .select({ id: usersTable.id, clerkId: usersTable.clerkId })
+      .from(usersTable)
+      .where(isNull(usersTable.betterAuthId));
+
+    if (sampleUsers.length === 0) {
+      res.json({ ok: true, deleted: 0, message: "No sample users found" });
+      return;
+    }
+
+    const ids = sampleUsers.map(u => u.id);
+    const clerkIds = sampleUsers.map(u => u.clerkId).filter(Boolean) as string[];
+
+    await Promise.allSettled([
+      db.delete(postsTable).where(inArray(postsTable.authorId, ids)),
+      clerkIds.length > 0
+        ? db.delete(reputationEventsTable).where(inArray(reputationEventsTable.userId, clerkIds))
+        : Promise.resolve(),
+      clerkIds.length > 0
+        ? db.delete(notificationsTable).where(inArray(notificationsTable.userId, clerkIds))
+        : Promise.resolve(),
+    ]);
+
+    await db.delete(usersTable).where(isNull(usersTable.betterAuthId));
+
+    await db.insert(modAuditLogTable).values({
+      action: "admin_delete_sample_users",
+      targetType: "user",
+      targetId: 0,
+      reason: `Admin bulk-deleted ${ids.length} sample users (no betterAuthId)`,
+    });
+
+    res.json({ ok: true, deleted: ids.length });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete sample users");
+    res.status(500).json({ error: "Failed to delete sample users" });
   }
 });
 
