@@ -30,7 +30,7 @@ interface UserDetail extends AdminUser {
   bio: string | null;
   followers: number;
   following: number;
-  debatesJoined: number;
+  debatesCreated: number;
   articlesPublished: number;
   streakDays: number;
   suspendedReason: string | null;
@@ -155,7 +155,7 @@ export default function Users() {
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                           {[
                             { label: "Rep Score", value: detail.reputationScore.toLocaleString() },
-                            { label: "Debates", value: detail.debatesJoined },
+                            { label: "Debates Created", value: detail.debatesCreated },
                             { label: "Articles", value: detail.articlesPublished },
                             { label: "Followers", value: detail.followers },
                             { label: "Following", value: detail.following },

@@ -877,6 +877,11 @@ router.get("/admin/users/:id", async (req, res) => {
           .limit(20)
       : [];
 
+    const [debatesCreatedRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(debatesTable)
+      .where(eq(debatesTable.creatorUserId, user.betterAuthId ?? ""));
+
     res.json({
       id: user.id,
       name: user.name,
@@ -885,7 +890,7 @@ router.get("/admin/users/:id", async (req, res) => {
       reputationScore: user.reputationScore,
       followers: user.followers,
       following: user.following,
-      debatesJoined: user.debatesJoined,
+      debatesCreated: debatesCreatedRow?.count ?? 0,
       articlesPublished: user.articlesPublished,
       isVerified: user.isVerified,
       isSuspended: user.isSuspended,

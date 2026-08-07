@@ -5,7 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatNumber, cn } from "@/lib/utils";
 import { LogOut, BookOpen, MessageSquare, Award, Shield, FileText, Pencil, Check, X, Trophy, Zap, Trash2, ClipboardCheck, Clock, CheckCircle, XCircle, Target, Plus, RotateCcw } from "lucide-react";
 import { useLocation, Link, useParams } from "wouter";
-import { useGetFeed, useGetArticles, useGetReputation, useGetCurrentUser, useGetMyReviewRequests, useGetUserPositions, useCreateUserPosition, useGetTopics, UserPositionGroup, useGetUserDna, useGetUserDebateHistory, DebateHistoryEntry, useGetUser, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useGetFeed, useGetReputation, useGetCurrentUser, useGetMyReviewRequests, useGetUserPositions, useCreateUserPosition, useGetTopics, UserPositionGroup, useGetUserDna, useGetUser, getGetUserQueryKey } from "@workspace/api-client-react";
 import { PostCard } from "@/components/feed/post-card";
 import { ArticleCard } from "@/components/feed/article-card";
 import { IntellectualDnaChart } from "@/components/intellectual-dna-chart";
@@ -318,9 +318,9 @@ function PublicProfile({ userId }: { userId: number }) {
     query: { queryKey: getGetUserQueryKey(userId), retry: false },
   });
   const { data: positionsData, isLoading: positionsLoading } = useGetUserPositions(userId);
-  const { data: debateHistory, isLoading: debateHistoryLoading } = useGetUserDebateHistory(userId);
   const { data: feedData } = useGetFeed({ tab: "for_you", authorId: userId });
-  const { data: articles } = useGetArticles();
+  const { data: articleFeed } = useGetFeed({ tab: "articles", authorId: userId });
+  const { data: createdDebates, isLoading: debateHistoryLoading } = useGetFeed({ tab: "debates", authorId: userId });
   const { data: dnaData, isLoading: dnaLoading } = useGetUserDna(userId);
 
   if (userLoading) return (
@@ -345,8 +345,8 @@ function PublicProfile({ userId }: { userId: number }) {
   const level = getLevel(user.reputationScore);
   const nextLevel = LEVELS[LEVELS.indexOf(level) + 1];
   const levelPct = nextLevel ? Math.round(((user.reputationScore - level.min) / (nextLevel.min - level.min)) * 100) : 100;
-  const posts = feedData?.filter(p => p.type === "opinion").slice(0, 4) ?? [];
-  const userArticles = (articles ?? []).slice(0, 4) as any[];
+  const posts = feedData?.filter(p => p.type !== "article" && p.type !== "debate_room" && p.type !== "debate").slice(0, 4) ?? [];
+  const userArticles = (articleFeed ?? []).slice(0, 4) as any[];
 
   return (
     <AppLayout>
@@ -406,7 +406,7 @@ function PublicProfile({ userId }: { userId: number }) {
 
             <div className="grid grid-cols-2 gap-3 mt-5 pt-5 border-t border-border">
               {[
-                { label: "Debates", value: debateHistory != null ? debateHistory.length : (user.debatesJoined ?? 0) },
+                { label: "Debates", value: createdDebates?.length ?? 0 },
                 { label: "Articles", value: user.articlesPublished },
               ].map(s => (
                 <div key={s.label} className="text-center">
@@ -450,11 +450,11 @@ function PublicProfile({ userId }: { userId: number }) {
               </div>
             )}
             {activeTab === "debates" && (
-              <DebateHistoryList
-                entries={debateHistory ?? []}
-                isLoading={debateHistoryLoading}
-                isOwner={false}
-              />
+              <div className="flex flex-col gap-3">
+                {debateHistoryLoading ? Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />) :
+                (createdDebates ?? []).length > 0 ? (createdDebates ?? []).map(d => <PostCard key={d.id} post={{ ...d, authorName: user.name }} />) :
+                <p className="text-center text-muted-foreground py-8 text-sm">No debates created yet.</p>}
+              </div>
             )}
             {activeTab === "positions" && (
               <PositionsView
@@ -466,31 +466,16 @@ function PublicProfile({ userId }: { userId: number }) {
             {activeTab === "stats" && (
               <div className="flex flex-col gap-6">
                 <div className="grid grid-cols-2 gap-3">
-                  {(() => {
-                    const debateCount = debateHistory != null ? debateHistory.length : (user.debatesJoined ?? 0);
-                    const supportCount = debateHistory?.filter(e => e.side === "support").length ?? 0;
-                    const againstCount = debateHistory?.filter(e => e.side === "against").length ?? 0;
-                    return (
-                      <>
-                        <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
-                          <MessageSquare className="w-5 h-5 mx-auto text-indigo-400" />
-                          <div className="text-2xl font-bold">{debateCount}</div>
-                          <div className="text-xs text-muted-foreground">Debates Voted</div>
-                          {debateCount > 0 && debateHistory != null && (
-                            <div className="flex items-center justify-center gap-1.5 flex-wrap mt-0.5">
-                              <span className="text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full">{supportCount} support</span>
-                              <span className="text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/25 px-2 py-0.5 rounded-full">{againstCount} against</span>
-                            </div>
-                          )}
-                        </div>
-                        <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
-                          <BookOpen className="w-5 h-5 mx-auto text-green-400" />
-                          <div className="text-2xl font-bold">{user.articlesPublished}</div>
-                          <div className="text-xs text-muted-foreground">Articles</div>
-                        </div>
-                      </>
-                    );
-                  })()}
+                  <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
+                    <MessageSquare className="w-5 h-5 mx-auto text-indigo-400" />
+                    <div className="text-2xl font-bold">{createdDebates?.length ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">Debates Created</div>
+                  </div>
+                  <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
+                    <BookOpen className="w-5 h-5 mx-auto text-green-400" />
+                    <div className="text-2xl font-bold">{user.articlesPublished}</div>
+                    <div className="text-xs text-muted-foreground">Articles</div>
+                  </div>
                 </div>
               </div>
             )}
@@ -555,8 +540,8 @@ function OwnProfile() {
     { tab: "articles", authorId: myDbId },
     { query: { enabled: !!myDbId } as never },
   );
-  const { data: myDebateHistory, isLoading: debateHistoryLoading } = useGetUserDebateHistory(
-    myDbId ?? 0,
+  const { data: myCreatedDebates, isLoading: debateHistoryLoading } = useGetFeed(
+    { tab: "debates", authorId: myDbId },
     { query: { enabled: !!myDbId } as never },
   );
   const { data: reviewRequests, isLoading: reviewRequestsLoading } = useGetMyReviewRequests();
@@ -613,15 +598,11 @@ function OwnProfile() {
     setDraftInterests(p => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s; });
   };
 
-  const myPosts = (feed ?? []).filter(p => p.type !== "article").slice(0, 5);
+  const myPosts = (feed ?? []).filter(p => p.type !== "article" && p.type !== "debate_room" && p.type !== "debate").slice(0, 5);
   const myArticles = (myArticleFeed ?? []).slice(0, 5) as any[];
 
-  const debatesJoinedCount = myDebateHistory != null ? myDebateHistory.length : (currentUser?.debatesJoined ?? 0);
-  const debateSupportCount = myDebateHistory?.filter(e => e.side === "support").length ?? 0;
-  const debateAgainstCount = myDebateHistory?.filter(e => e.side === "against").length ?? 0;
-
   const STATS = {
-    debatesJoined: debatesJoinedCount,
+    debatesJoined: myCreatedDebates?.length ?? 0,
     articlesPublished: currentUser?.articlesPublished ?? myArticles.length,
   };
 
@@ -1028,11 +1009,15 @@ function OwnProfile() {
               </div>
             )}
             {activeTab === "debates" && (
-              <DebateHistoryList
-                entries={myDebateHistory ?? []}
-                isLoading={debateHistoryLoading}
-                isOwner={true}
-              />
+              <div className="flex flex-col gap-3">
+                {debateHistoryLoading ? Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />) :
+                (myCreatedDebates ?? []).length > 0 ? (myCreatedDebates ?? []).map(d => <PostCard key={d.id} post={d} />) : (
+                  <div className="text-center py-12">
+                    <p className="text-muted-foreground font-medium mb-2">No debates created yet</p>
+                    <Link href="/debates"><button className="text-sm text-primary hover:underline">Start your first debate →</button></Link>
+                  </div>
+                )}
+              </div>
             )}
 
             {activeTab === "positions" && (
@@ -1055,13 +1040,7 @@ function OwnProfile() {
                   <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
                     <MessageSquare className="w-5 h-5 mx-auto text-indigo-400" />
                     <div className="text-2xl font-bold">{STATS.debatesJoined}</div>
-                    <div className="text-xs text-muted-foreground">Debates Voted</div>
-                    {STATS.debatesJoined > 0 && (
-                      <div className="flex items-center justify-center gap-1.5 flex-wrap mt-0.5">
-                        <span className="text-[11px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-2 py-0.5 rounded-full">{debateSupportCount} support</span>
-                        <span className="text-[11px] font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/25 px-2 py-0.5 rounded-full">{debateAgainstCount} against</span>
-                      </div>
-                    )}
+                    <div className="text-xs text-muted-foreground">Debates Created</div>
                   </div>
                   <div className="bg-muted/30 border border-border rounded-xl p-4 flex flex-col gap-2 text-center">
                     <BookOpen className="w-5 h-5 mx-auto text-green-400" />
