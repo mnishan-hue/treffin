@@ -123,6 +123,11 @@ export default function DatabaseTools() {
     }
   };
 
+  const runPushSchema = () =>
+    clearAndRun("Push schema", () =>
+      api.post<ActionResult>("/admin/db/push-schema", {}),
+    );
+
   const runSeed = () =>
     clearAndRun("Seed database", () =>
       api.post<ActionResult>("/admin/db/seed", {}),
@@ -167,6 +172,14 @@ export default function DatabaseTools() {
 
       {/* Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <ActionCard
+          title="Push Schema"
+          description="Applies any pending Drizzle schema changes to the database (creates missing tables and columns). Safe to run at any time — never wipes data."
+          buttonLabel="Push Schema"
+          buttonColor="bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
+          running={running === "Push schema"}
+          onRun={runPushSchema}
+        />
         <ActionCard
           title="Seed Database"
           description="Clears all existing data, then inserts 10 users, 8 debates, 6 articles, 5 communities, 7 math problems, 2 contests, a daily question, and a weekly challenge."
