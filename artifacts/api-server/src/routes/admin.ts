@@ -1968,6 +1968,17 @@ router.get("/admin/db/counts", async (req, res) => {
   }
 });
 
+/** Standalone schema push — creates missing tables without touching data. */
+router.post("/admin/db/push-schema", requireAdmin, async (req, res) => {
+  try {
+    const out = await runSchemaPush();
+    res.json({ ok: true, output: out });
+  } catch (err) {
+    req.log.error({ err }, "db/push-schema failed");
+    res.status(500).json({ ok: false, error: String(err) });
+  }
+});
+
 router.post("/admin/db/seed", async (req, res) => {
   try {
     const schemaOut = await runSchemaPush();
