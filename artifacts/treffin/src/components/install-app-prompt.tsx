@@ -5,10 +5,13 @@
  * iOS:     instructions shown right away (no extra "Download" step before them).
  * Other:   banner hidden — nothing to offer.
  *
+ * Entrance: smooth slide-up + fade-in via CSS transition (no jarring pop-in).
+ * Exit:     smooth fade + slide-down before unmounting.
+ *
  * Once the user installs or permanently dismisses, the prompt never appears
  * again (tracked in localStorage).
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Download, Share, X } from "lucide-react";
 import { useInstallPWA } from "@/lib/use-install-pwa";
 
@@ -18,41 +21,63 @@ const DELAY_MS = 45_000;
 
 export function InstallAppPrompt() {
   const { isInstalled, platform, canAutoInstall, install } = useInstallPWA();
-  const [visible, setVisible] = useState(false);
 
+  // `ready` = should the card be in the DOM at all
+  const [ready, setReady] = useState(false);
+  // `entered` = CSS transition target (false → hidden, true → fully visible)
+  const [entered, setEntered] = useState(false);
+  // `leaving` = triggered when dismissing so we animate out before unmounting
+  const [leaving, setLeaving] = useState(false);
+
+  const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Decide when to show
   useEffect(() => {
     if (isInstalled) return;
     if (localStorage.getItem(DISMISSED_KEY)) return;
-    // Only show if there's something actionable to offer
     if (platform === "unsupported") return;
 
-    const timer = setTimeout(() => setVisible(true), DELAY_MS);
+    const timer = setTimeout(() => setReady(true), DELAY_MS);
     return () => clearTimeout(timer);
   }, [isInstalled, platform]);
 
-  // For Android: wait until the native event has fired before showing
+  // For Android: don't show until the native event has actually fired
   useEffect(() => {
-    if (platform === "android" && visible && !canAutoInstall) {
-      setVisible(false); // not ready yet — will re-show once canAutoInstall flips
+    if (platform !== "android") return;
+    if (canAutoInstall && !localStorage.getItem(DISMISSED_KEY)) {
+      setReady(true);
     }
-    if (platform === "android" && canAutoInstall && !localStorage.getItem(DISMISSED_KEY)) {
-      setVisible(true);
-    }
-  }, [platform, canAutoInstall, visible]);
+  }, [platform, canAutoInstall]);
+
+  // Two-frame entrance: mount → next frame → add transition class
+  useEffect(() => {
+    if (!ready) return;
+    const raf = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setEntered(true));
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [ready]);
 
   const dismiss = (permanent = false) => {
     if (permanent) localStorage.setItem(DISMISSED_KEY, "dismissed");
-    setVisible(false);
+    // Animate out, then unmount
+    setEntered(false);
+    setLeaving(true);
+    exitTimer.current = setTimeout(() => {
+      setReady(false);
+      setLeaving(false);
+    }, 300);
   };
+
+  useEffect(() => () => { if (exitTimer.current) clearTimeout(exitTimer.current); }, []);
 
   const handleInstall = async () => {
     localStorage.setItem(DISMISSED_KEY, "asked");
-    const accepted = await install(); // fires native dialog on Android; no-op on iOS
-    if (accepted) setVisible(false);
-    // iOS: install() returns false → banner stays open showing Share instructions
+    const accepted = await install();
+    if (accepted) dismiss(false);
   };
 
-  if (!visible) return null;
+  if (!ready && !leaving) return null;
 
   return (
     <div
@@ -65,8 +90,13 @@ export function InstallAppPrompt() {
         border: "1px solid hsl(var(--border))",
         borderRadius: "16px",
         padding: "16px",
-        boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.28)",
         zIndex: 9997,
+        // Smooth entrance / exit
+        opacity: entered ? 1 : 0,
+        transform: entered ? "translateY(0)" : "translateY(18px)",
+        transition: "opacity 300ms cubic-bezier(0.4,0,0.2,1), transform 300ms cubic-bezier(0.4,0,0.2,1)",
+        willChange: "opacity, transform",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -74,28 +104,25 @@ export function InstallAppPrompt() {
           src={`${import.meta.env.BASE_URL}treffin-mark.png`}
           alt="Treffin"
           style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0 }}
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = "none";
-          }}
+          onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
         />
+
         <div style={{ flex: 1, minWidth: 0 }}>
           <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "hsl(var(--foreground))" }}>
             Download Treffin
           </p>
 
           {platform === "ios" ? (
-            /* iOS: show steps immediately — no extra click needed */
-            <p style={{ margin: "4px 0 0", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.5 }}>
+            <p style={{ margin: "4px 0 0", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.55 }}>
               Tap your browser's{" "}
               <Share size={11} style={{ display: "inline", verticalAlign: "middle" }} />{" "}
               <strong>Share</strong> button, then tap{" "}
-              <strong>"Add to Home Screen"</strong> to install Treffin.
+              <strong>"Add to Home Screen"</strong>.
             </p>
           ) : (
-            /* Android: one-tap install */
             <>
-              <p style={{ margin: "4px 0 12px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.4 }}>
-                Install for faster access, offline support, and a native app feel.
+              <p style={{ margin: "4px 0 12px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.45 }}>
+                Faster access, offline support, and a native app feel.
               </p>
               <div style={{ display: "flex", gap: 8 }}>
                 <button
