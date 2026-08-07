@@ -15,7 +15,7 @@ import {
   customFetch,
 } from "@workspace/api-client-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { formatNumber } from "@/lib/utils";
+import { formatNumber, timeAgo } from "@/lib/utils";
 import { MessageCircle, Heart, Share, Bookmark, Send, MoreHorizontal, Trash2, Flag, Copy, EyeOff, Eye } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
@@ -349,7 +349,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
               )}
               {!isAnonymous && <span className="text-xs text-muted-foreground">{post.authorTitle}</span>}
               <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-xs text-muted-foreground">{post.createdAt}</span>
+              <span className="text-xs text-muted-foreground">{timeAgo(post.createdAt)}</span>
               <div className="ml-auto flex items-center gap-1.5">
                 {isOwner && isAnonymous && (
                   <button
@@ -477,22 +477,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
                   <AnimatePresence initial={false}>
                     {comments.map(c => {
                       const isOwnComment = c.authorId === authorId;
-                      const timeAgo = (() => {
-                        const date = new Date(c.createdAt);
-                        const now = new Date();
-                        const secs = Math.floor((now.getTime() - date.getTime()) / 1000);
-                        if (secs < 60) return "Just now";
-                        const mins = Math.floor(secs / 60);
-                        if (mins < 60) return `${mins}m ago`;
-                        const hours = Math.floor(mins / 60);
-                        if (hours < 24) return `${hours}h ago`;
-                        const days = Math.floor(hours / 24);
-                        if (days < 7) return days === 1 ? "1 day ago" : `${days} days ago`;
-                        const weeks = Math.floor(days / 7);
-                        if (days < 30) return weeks === 1 ? "1 week ago" : `${weeks} weeks ago`;
-                        const sameYear = date.getFullYear() === now.getFullYear();
-                        return date.toLocaleDateString("en-US", { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
-                      })();
+                      const commentTimeAgo = timeAgo(c.createdAt);
                       return (
                         <motion.div
                           key={c.id}
@@ -512,7 +497,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
                               <div className="flex items-center justify-between mb-1">
                                 <div className="flex items-center gap-1.5">
                                   <span className="text-xs font-semibold">{isOwnComment ? "You" : c.authorName}</span>
-                                  <span className="text-[10px] text-muted-foreground">{timeAgo}</span>
+                                  <span className="text-[10px] text-muted-foreground">{commentTimeAgo}</span>
                                 </div>
                                 {isOwnComment && (
                                   <button

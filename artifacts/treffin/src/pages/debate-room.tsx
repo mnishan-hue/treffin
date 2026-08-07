@@ -4,7 +4,7 @@ import { AppLayout } from "@/components/layout/app-layout";
 import { useGetDebate, useVoteDebate, getGetDebateQueryKey, useGetMyDebateVote, getGetMyDebateVoteQueryKey } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { formatNumber, cn } from "@/lib/utils";
+import { formatNumber, cn, timeAgo } from "@/lib/utils";
 import { Users, ArrowLeft, ThumbsUp, ThumbsDown, MessageCircle, Share, Heart, Send, Link as LinkIcon, CheckCircle, Trophy, Star, Zap, FileDown, Loader2, Handshake, ChevronUp, ChevronDown, Snowflake, AlertTriangle, LogOut, ShieldCheck, BarChart2, Pencil, ShieldAlert, Pin, Trash2, Flag, Gavel, Square, X, Shield, Activity } from "lucide-react";
 import { getApiUrl } from "@/lib/api-url";
 import { exportDebatePDF } from "@/lib/export-debate-pdf";
@@ -43,7 +43,7 @@ function commentToArg(c: { id: number; authorName: string; content: string; crea
     text: c.content,
     likes: c.likes ?? 0,
     likedByMe: c.likedByMe ?? false,
-    time: new Date(c.createdAt).toLocaleDateString(),
+    time: timeAgo(c.createdAt),
     isFlagged: c.isFlagged,
     flagLabel: c.flagLabel,
     editedAt: c.editedAt ?? null,
@@ -1170,7 +1170,7 @@ export default function DebateRoom() {
       const toExportArg = (c: FreshComment) => ({
         author: c.authorName,
         text: c.content,
-        time: new Date(c.createdAt).toLocaleDateString(),
+        time: timeAgo(c.createdAt),
       });
       const fetchedArgs = commentsRes.status === "fulfilled" && freshComments.length > 0;
       const freshSupport = freshComments.filter((c) => c.side === "support").map(toExportArg);
@@ -1492,7 +1492,7 @@ export default function DebateRoom() {
                                 <div key={entry.id} className="flex flex-col gap-0.5 p-2 rounded-lg bg-muted/15 border border-border/40">
                                   <div className="flex items-center justify-between gap-2">
                                     <span className="text-[11px] font-semibold text-foreground/80">{actionLabel(entry.action)}</span>
-                                    <span className="text-[10px] text-muted-foreground shrink-0">{new Date(entry.createdAt).toLocaleDateString()}</span>
+                                    <span className="text-[10px] text-muted-foreground shrink-0">{timeAgo(entry.createdAt)}</span>
                                   </div>
                                   {entry.reason && (
                                     <p className="text-[10px] text-muted-foreground leading-relaxed">{entry.reason}</p>
