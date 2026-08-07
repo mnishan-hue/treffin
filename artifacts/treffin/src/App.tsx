@@ -57,10 +57,17 @@ import { MathLayout } from "@/components/math/math-layout";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
+      // Show cached data immediately on re-navigation; re-fetch silently in
+      // the background only after 30 s.  Without this every route change
+      // discards perfectly-good cached responses and re-renders full skeletons.
+      staleTime: 30_000,
+      // Don't re-fetch just because the user clicked another browser tab and
+      // came back — this triggers a waterfall of requests on every focus.
+      refetchOnWindowFocus: false,
       retry: (failureCount, error) => {
         const status = (error as { status?: number })?.status;
         if (status !== undefined && status >= 400 && status < 500) return false;
-        return failureCount < 3;
+        return failureCount < 2;
       },
     },
   },
@@ -163,8 +170,19 @@ function GlobalPanels() {
   return <><RepFloater /><LevelUpModal /></>;
 }
 
+/** Scrolls the window to the top on every route change. */
+function ScrollToTop() {
+  const [location] = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+  }, [location]);
+  return null;
+}
+
 function AppRouter() {
   return (
+    <>
+    <ScrollToTop />
     <Switch>
       <Route path="/" component={HomeRedirect} />
       <Route path="/home" component={HomeRedirect} />
@@ -202,6 +220,7 @@ function AppRouter() {
       <Route path="/math/notifications"><MathLayout><MathNotifications /></MathLayout></Route>
       <Route component={NotFound} />
     </Switch>
+    </>
   );
 }
 
