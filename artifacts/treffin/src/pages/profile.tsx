@@ -547,11 +547,23 @@ function OwnProfile() {
   const myDbId = currentUser?.id;
   const { data: dnaData, isLoading: dnaLoading } = useGetUserDna(myDbId ?? 0, { query: { enabled: !!myDbId } as never });
 
-  const { data: feed, isLoading: feedLoading } = useGetFeed({ tab: "for_you", authorId: myDbId });
-  const { data: myArticleFeed, isLoading: articlesLoading } = useGetFeed({ tab: "articles", authorId: myDbId });
-  const { data: myDebateHistory, isLoading: debateHistoryLoading } = useGetUserDebateHistory(myDbId ?? 0);
+  const { data: feed, isLoading: feedLoading } = useGetFeed(
+    { tab: "for_you", authorId: myDbId },
+    { query: { enabled: !!myDbId } as never },
+  );
+  const { data: myArticleFeed, isLoading: articlesLoading } = useGetFeed(
+    { tab: "articles", authorId: myDbId },
+    { query: { enabled: !!myDbId } as never },
+  );
+  const { data: myDebateHistory, isLoading: debateHistoryLoading } = useGetUserDebateHistory(
+    myDbId ?? 0,
+    { query: { enabled: !!myDbId } as never },
+  );
   const { data: reviewRequests, isLoading: reviewRequestsLoading } = useGetMyReviewRequests();
-  const { data: myPositions, isLoading: positionsLoading, refetch: refetchPositions } = useGetUserPositions(myDbId ?? 0);
+  const { data: myPositions, isLoading: positionsLoading, refetch: refetchPositions } = useGetUserPositions(
+    myDbId ?? 0,
+    { query: { enabled: !!myDbId } as never },
+  );
   const { data: topicsData } = useGetTopics();
   const createPosition = useCreateUserPosition();
   const topicSuggestions = topicsData?.map(t => t.name) ?? [];

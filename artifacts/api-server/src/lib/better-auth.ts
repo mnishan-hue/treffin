@@ -109,6 +109,19 @@ export const auth = betterAuth({
   // Frontend (thetreffin.com) and API (treffin-api.onrender.com) are on
   // different domains. Browsers block cross-origin cookies unless the server
   // explicitly opts in with SameSite=None + Secure.
+  // Cache the session payload in a signed cookie so the client SDK can read
+  // it without making a network round-trip for every useSession() call.
+  // With 20+ components calling useSession() simultaneously this previously
+  // caused a flood of GET /api/auth/get-session requests that exhausted the
+  // global rate limiter (300 req / 15 min) and returned 429s for all other
+  // API calls.  5-minute maxAge is a safe balance between freshness and load.
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 60 * 5, // seconds — refresh the cache every 5 minutes
+    },
+  },
+
   advanced: {
     defaultCookieAttributes: {
       sameSite: "none",

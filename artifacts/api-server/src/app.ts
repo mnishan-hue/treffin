@@ -171,7 +171,10 @@ app.use(async (req, _res, next) => {
 
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 300,
+  // Raised from 300 → 1000: a React SPA with 20+ components makes many
+  // parallel API calls on every page transition.  300/15min was far too low
+  // and caused legitimate traffic to receive 429s.
+  max: 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many requests, please try again later." },
@@ -196,7 +199,14 @@ function writeOnly(limiter: ReturnType<typeof rateLimit>) {
   };
 }
 
-app.use("/api", globalLimiter);
+// Apply the global limiter to all /api routes EXCEPT /api/auth/* —
+// Better Auth session endpoints are called frequently by the client SDK
+// (useSession in every mounted component) and must not consume the shared
+// quota.  They have their own security model (signed cookies, CSRF tokens).
+app.use("/api", (req, res, next) => {
+  if (req.path.startsWith("/auth/")) return next();
+  return globalLimiter(req, res, next);
+});
 app.use("/api/feed", writeOnly(writeLimiter));
 app.use("/api/posts", writeOnly(writeLimiter));
 app.use("/api/articles", writeOnly(writeLimiter));
