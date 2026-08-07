@@ -11,6 +11,7 @@ import { RepFloater } from "@/components/rep-floater";
 import { LevelUpModal } from "@/components/level-up-modal";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineIndicator } from "@/components/offline-indicator";
+import { UpdatePrompt } from "@/components/update-prompt";
 import { BannerQueue } from "@/components/banner-queue";
 import { PushNotificationPrompt } from "@/components/push-notification-prompt";
 import { InstallAppPrompt } from "@/components/install-app-prompt";
@@ -237,6 +238,7 @@ function App() {
               <MathUserSync />
               <TooltipProvider>
                 <GlobalKeyboardShortcuts />
+                <UpdatePrompt />
                 <AppRouter />
                 <GlobalPanels />
                 <Toaster />

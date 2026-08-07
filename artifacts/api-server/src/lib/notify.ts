@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { notificationsTable, usersTable } from "@workspace/db";
 import { eq, and, or, sql } from "drizzle-orm";
 import type { Logger } from "pino";
+import { sendPushToUser } from "./push";
 
 export interface NotifyParams {
   targetDbUserId: number;
@@ -162,6 +163,14 @@ export async function createNotification(
       count: 1,
       batchKey: batchKey ?? null,
     });
+
+    // Fire a Web Push notification to all registered devices (best-effort,
+    // never blocks or fails the in-app notification insert above).
+    void sendPushToUser(
+      targetUserId,
+      { title, body, url: "/notifications", tag: type },
+      log,
+    );
   } catch (err) {
     log.error({ err, targetDbUserId, type }, "Failed to insert notification");
   }

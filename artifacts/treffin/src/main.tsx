@@ -10,7 +10,10 @@ if (apiBase) {
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+    // Use BASE_URL so this works both in Replit (subpath) and production (root)
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .catch((err) => console.warn("[sw] registration failed", err));
   });
 }
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation } from "wouter";
 import { useSession } from "@/lib/auth-client";
 import { Cookie, X, Download, Share, Bell } from "lucide-react";
+import { enablePushNotifications } from "@/lib/push";
 
 const COOKIE_KEY = "treffin_cookie_consent";
 const INSTALL_KEY = "treffin_pwa_dismissed";
@@ -129,11 +130,11 @@ export function BannerQueue() {
     const enable = async () => {
       localStorage.setItem(PUSH_KEY, "asked");
       advance("push");
-      const permission = await Notification.requestPermission();
-      if (permission === "granted") {
+      const granted = await enablePushNotifications();
+      if (granted) {
         new Notification("Treffin notifications enabled!", {
           body: "You'll be notified about debate replies, rep changes, and trending topics.",
-          icon: "/favicon.png",
+          icon: `${import.meta.env.BASE_URL}treffin-mark.png`,
         });
       }
     };

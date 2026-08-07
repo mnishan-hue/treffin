@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Bell, X } from "lucide-react";
+import { enablePushNotifications } from "@/lib/push";
 
 const PROMPT_KEY = "treffin_push_prompted";
 const DELAY_MS = 30_000;
@@ -24,8 +25,9 @@ export function PushNotificationPrompt() {
   const enable = async () => {
     localStorage.setItem(PROMPT_KEY, "asked");
     setVisible(false);
-    const permission = await Notification.requestPermission();
-    if (permission === "granted") {
+    const granted = await enablePushNotifications();
+    if (granted) {
+      // Show a local confirmation — the real push channel is now live
       new Notification("Treffin notifications enabled!", {
         body: "You'll be notified about replies, debate updates, and rep changes.",
         icon: `${import.meta.env.BASE_URL}treffin-mark.png`,

@@ -14,6 +14,7 @@ import notificationsRouter from "./notifications";
 import searchRouter from "./search";
 import moderationRouter from "./moderation";
 import mathRouter from "./math";
+import pushRouter from "./push";
 import { suspendedCheck } from "../middlewares/suspendedCheck";
 
 const router: IRouter = Router();
@@ -36,5 +37,6 @@ router.use(notificationsRouter);
 router.use(searchRouter);
 router.use(moderationRouter);
 router.use(mathRouter);
+router.use(pushRouter);
 
 export default router;

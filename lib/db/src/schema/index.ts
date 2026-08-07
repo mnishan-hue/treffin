@@ -36,6 +36,7 @@ export * from "./math-annotations";
 export * from "./math-bookmarks";
 export * from "./math-user-profiles";
 export * from "./math-notifications";
+export * from "./push-subscriptions";
 export * from "./math_difficulty_votes";
 export * from "./math_showdown_votes";
 export * from "./post_likes";
