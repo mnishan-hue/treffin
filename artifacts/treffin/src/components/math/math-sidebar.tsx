@@ -1,42 +1,11 @@
-import { useMemo, useEffect, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "wouter";
 import {
   useGetMathLeaderboard,
   useGetMathStats, getGetMathStatsQueryKey,
+  useGetMathUserProfile,
 } from "@workspace/api-client-react";
 import { getMathUserId } from "@/lib/math-auth";
-
-/* ── streak helpers (localStorage) ─────────────────────────────── */
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function loadStreak(): { count: number; lastDate: string | null; solvedToday: number } {
-  try {
-    return {
-      count:       parseInt(localStorage.getItem("math_streak_count")  ?? "0", 10) || 0,
-      lastDate:    localStorage.getItem("math_streak_date"),
-      solvedToday: parseInt(localStorage.getItem("math_solved_today")  ?? "0", 10) || 0,
-    };
-  } catch { return { count: 0, lastDate: null, solvedToday: 0 }; }
-}
-
-function bumpStreak(): { count: number; solvedToday: number } {
-  try {
-    const today = todayKey();
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    const stored = loadStreak();
-    let next = 1;
-    if (stored.lastDate === today) {
-      next = stored.count;
-    } else if (stored.lastDate === yesterday) {
-      next = stored.count + 1;
-    }
-    localStorage.setItem("math_streak_count", String(next));
-    localStorage.setItem("math_streak_date",  today);
-    return { count: next, solvedToday: stored.lastDate === today ? stored.solvedToday : 0 };
-  } catch { return { count: 1, solvedToday: 0 }; }
-}
 
 /* ── daily math insights (editorial, rotates daily) ─────────────── */
 const INSIGHTS = [
@@ -89,25 +58,25 @@ export function MathSidebar() {
   const { data: leaderboard } = useGetMathLeaderboard({ limit: 5 });
   const { data: stats }       = useGetMathStats({ query: { queryKey: getGetMathStatsQueryKey() } });
 
-  const [streak, setStreak] = useState<{ count: number; solvedToday: number }>({ count: 0, solvedToday: 0 });
-
-  useEffect(() => {
-    setStreak(bumpStreak());
-  }, []);
+  // Fetch real streak from the server (updated when user solves problems / views the hub)
+  const { data: userProfile } = useGetMathUserProfile(userId ?? "", {
+    query: { enabled: !!userId },
+  });
+  const streakCount = userProfile?.streak ?? 0;
 
   const todayInsight = useMemo(() => {
     const dow = new Date().getDay();
     return INSIGHTS[dow % INSIGHTS.length];
   }, []);
 
-  const streakLabel = streak.count === 0
+  const streakLabel = streakCount === 0
     ? "Start your streak!"
-    : streak.count === 1
+    : streakCount === 1
     ? "1 day — keep going!"
-    : `${streak.count} days 🔥`;
+    : `${streakCount} days 🔥`;
 
-  const milestoneNext = streak.count < 3 ? 3 : streak.count < 7 ? 7 : streak.count < 30 ? 30 : streak.count < 100 ? 100 : 365;
-  const milestoneProgress = Math.min(streak.count / milestoneNext, 1);
+  const milestoneNext = streakCount < 3 ? 3 : streakCount < 7 ? 7 : streakCount < 30 ? 30 : streakCount < 100 ? 100 : 365;
+  const milestoneProgress = Math.min(streakCount / milestoneNext, 1);
 
   return (
     <div className="flex flex-col gap-3">
@@ -147,28 +116,25 @@ export function MathSidebar() {
       </div>
 
       {/* ── 2. Your Streak ────────────────────────────────────── */}
-      <div className="rounded-xl border border-border/60 p-4" style={{ background: streak.count >= 3 ? "linear-gradient(135deg,rgba(249,115,22,0.08),rgba(234,88,12,0.04))" : undefined }}>
+      <div className="rounded-xl border border-border/60 p-4" style={{ background: streakCount >= 3 ? "linear-gradient(135deg,rgba(249,115,22,0.08),rgba(234,88,12,0.04))" : undefined }}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-[13px] font-bold">
-            {streak.count >= 7 ? "🔥" : streak.count >= 3 ? "⚡" : "📅"} Your Streak
+            {streakCount >= 7 ? "🔥" : streakCount >= 3 ? "⚡" : "📅"} Your Streak
           </span>
-          {streak.count > 0 && (
-            <span className="text-[11px] font-bold" style={{ color: streak.count >= 7 ? "#f97316" : streak.count >= 3 ? "#fbbf24" : "hsl(220 15% 55%)" }}>
+          {streakCount > 0 && (
+            <span className="text-[11px] font-bold" style={{ color: streakCount >= 7 ? "#f97316" : streakCount >= 3 ? "#fbbf24" : "hsl(220 15% 55%)" }}>
               {streakLabel}
             </span>
           )}
         </div>
 
-        {streak.count === 0 ? (
+        {streakCount === 0 ? (
           <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
             Solve a problem today to start your streak. Come back every day to keep it going.
           </p>
         ) : (
           <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
-            {streak.solvedToday > 0
-              ? `${streak.solvedToday} problem${streak.solvedToday > 1 ? "s" : ""} solved today ·`
-              : "Visit again tomorrow ·"}{" "}
-            next milestone: {milestoneNext} days
+            Solve again tomorrow to reach the next milestone: {milestoneNext} days
           </p>
         )}
 
@@ -178,12 +144,12 @@ export function MathSidebar() {
             className="h-full rounded-full transition-all duration-700"
             style={{
               width: `${milestoneProgress * 100}%`,
-              background: streak.count >= 7 ? "linear-gradient(to right,#f97316,#fbbf24)" : streak.count >= 3 ? "#fbbf24" : "#6366f1",
+              background: streakCount >= 7 ? "linear-gradient(to right,#f97316,#fbbf24)" : streakCount >= 3 ? "#fbbf24" : "#6366f1",
             }}
           />
         </div>
         <div className="flex justify-between mt-1">
-          <span className="text-[10px] text-muted-foreground/60">{streak.count} days</span>
+          <span className="text-[10px] text-muted-foreground/60">{streakCount} days</span>
           <span className="text-[10px] text-muted-foreground/60">{milestoneNext} days</span>
         </div>
 
@@ -269,17 +235,19 @@ export function MathSidebar() {
       </div>
 
       {/* ── 6. Proof Debates callout ──────────────────────────── */}
-      <div className="rounded-xl border p-4" style={{ background: "linear-gradient(135deg,rgba(167,139,250,0.1),rgba(99,102,241,0.07))", borderColor: "rgba(167,139,250,0.25)" }}>
-        <div className="text-xl mb-1.5">⚔️</div>
-        <p className="text-[13px] font-bold mb-1.5">Proof Debates</p>
-        <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
-          Challenge any solution to a structured Oxford-style proof debate. Unique to Treffin — coming soon.
-        </p>
-        <div className="flex items-center gap-1.5 text-[11px] font-bold" style={{ color: "#a78bfa" }}>
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse inline-block" style={{ background: "#a78bfa" }}/>
-          In development · Stay tuned ✦
+      <Link href="/math">
+        <div className="rounded-xl border p-4 cursor-pointer transition-all hover:opacity-90" style={{ background: "linear-gradient(135deg,rgba(167,139,250,0.1),rgba(99,102,241,0.07))", borderColor: "rgba(167,139,250,0.25)" }}>
+          <div className="text-xl mb-1.5">⚔️</div>
+          <p className="text-[13px] font-bold mb-1.5">Elegance Battles</p>
+          <p className="text-[12px] text-muted-foreground leading-relaxed mb-3">
+            Open any problem and challenge solutions to a structured Oxford-style proof debate. Vote on which proof is most elegant, rigorous, or clear.
+          </p>
+          <div className="flex items-center gap-1.5 text-[11px] font-bold" style={{ color: "#a78bfa" }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+            Live now — open any problem to start ✦
+          </div>
         </div>
-      </div>
+      </Link>
 
       {/* ── 7. Eureka reactions legend ───────────────────────── */}
       <div className="bg-card border border-border/60 rounded-xl p-4">

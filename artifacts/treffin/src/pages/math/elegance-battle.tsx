@@ -21,7 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import {
   ArrowLeft, ChevronUp, ChevronDown, MessageSquare, Trophy,
-  Eye, Zap, X, Send, Crown, CheckCircle, Flame, Sparkles,
+  Zap, X, Send, Crown, CheckCircle, Flame, Sparkles,
   Target, Users, Shield, TrendingUp, Star, Award, Swords,
   BarChart3, BookOpen, ChevronRight,
 } from "lucide-react";
@@ -814,8 +814,10 @@ export default function MathEleganceBattle() {
   // Sort by total votes
   const ranked = data ? [...data.solutions].sort((a, b) => totalVotes(b) - totalVotes(a)) : [];
 
-  // Spectator heuristic
-  const spectators = data ? Math.max(8, data.arguments.length * 4 + 12) : 0;
+  // Real unique participant count — authors who have posted at least one argument
+  const uniqueParticipants = data
+    ? new Set(data.arguments.map((a: { userId: string }) => a.userId)).size
+    : 0;
 
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (isLoading) {
@@ -910,10 +912,12 @@ export default function MathEleganceBattle() {
               </div>
 
               <div className="flex items-center gap-4 shrink-0 text-muted-foreground text-xs">
-                <span className="flex items-center gap-1.5">
-                  <Eye className="w-3.5 h-3.5" />
-                  {spectators} watching
-                </span>
+                {uniqueParticipants > 0 && (
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" />
+                    {uniqueParticipants} participant{uniqueParticipants !== 1 ? "s" : ""}
+                  </span>
+                )}
                 <span className="flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" />
                   {data.solutions.length} solutions

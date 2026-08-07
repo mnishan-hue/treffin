@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useGetMathLeaderboard } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getMathUserId } from "@/lib/math-auth";
@@ -22,10 +22,20 @@ function RankMedal({ rank }: { rank: number }) {
 export default function Leaderboard() {
   const myUserId = getMathUserId();
   const [limit, setLimit] = useState(PAGE_SIZE);
+  // Track whether the last completed fetch returned a full page (might have more)
+  const [hitEnd, setHitEnd] = useState(false);
 
   const { data: entries, isLoading, isFetching } = useGetMathLeaderboard({ limit });
 
-  const hasMore = (entries?.length ?? 0) >= limit;
+  // When a non-fetching response arrives with fewer items than requested → end of list
+  useEffect(() => {
+    if (!isFetching && entries !== undefined) {
+      if (entries.length < limit) setHitEnd(true);
+    }
+  }, [entries, isFetching, limit]);
+
+  const count = entries?.length ?? 0;
+  const hasMore = !hitEnd && count > 0;
 
   return (
     <AppLayout>
@@ -113,7 +123,7 @@ export default function Leaderboard() {
           {hasMore && (
             <div className="mt-6 flex justify-center">
               <button
-                onClick={() => setLimit((l) => l + PAGE_SIZE)}
+                onClick={() => { setHitEnd(false); setLimit((l) => l + PAGE_SIZE); }}
                 disabled={isFetching}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-full border border-border bg-card hover:border-primary/40 hover:bg-primary/5 transition-all text-sm font-medium text-muted-foreground hover:text-foreground disabled:opacity-50"
               >

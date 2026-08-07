@@ -963,7 +963,11 @@ export default function MathHub() {
 
                         {/* Solve CTA */}
                         <div className="math-prob-actions" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 8, paddingTop: 2 }}>
-                          <EurekaReactions problemId={p.id} />
+                          <EurekaReactions
+                            problemId={p.id}
+                            counts={(p as typeof p & { reactionCounts?: Record<string, number> }).reactionCounts ?? {}}
+                            myReactions={(p as typeof p & { myReactions?: string[] }).myReactions ?? []}
+                          />
                           <span style={{
                             padding: "6px 14px", borderRadius: 8,
                             fontSize: "0.73rem", fontWeight: 700,
