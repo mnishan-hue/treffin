@@ -98,6 +98,11 @@ export const auth = betterAuth({
     accountLinking: {
       enabled: true,
       trustedProviders: ["google"],
+      // MUST be false: the default is true, and it fires as a second independent
+      // condition even when the provider IS in trustedProviders.
+      // Without this, any user whose ba_user.emailVerified = false (all
+      // email/password signups by default) still gets account_not_linked.
+      requireLocalEmailVerified: false,
     },
   },
 
