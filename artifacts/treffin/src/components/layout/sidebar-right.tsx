@@ -191,7 +191,7 @@ export function SidebarRight() {
 
       {/* Elite Thinkers */}
       {(() => {
-        const elites = topThinkers?.filter(t => t.reputationScore >= 8000) ?? [];
+        const elites = topThinkers?.filter(t => t.reputationScore >= 1000) ?? [];
         return (
           <div className="relative overflow-hidden rounded-xl border border-yellow-500/25 bg-gradient-to-br from-yellow-950/50 via-amber-950/30 to-card p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -200,16 +200,16 @@ export function SidebarRight() {
                 <h2 className="text-[13px] font-bold text-yellow-200">Elite Thinkers</h2>
               </div>
               <div className="flex items-center gap-1 text-[10px] font-bold text-yellow-500/80 uppercase tracking-widest">
-                <Lock className="w-2.5 h-2.5" /> 8k+ rep
+                <Lock className="w-2.5 h-2.5" /> 1k+ rep
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed -mt-1">
-              Exclusive tier for 8,000+ rep users. Earn your place through consistent contributions.
+              Exclusive tier for 1,000+ rep users. Earn your place through consistent contributions.
             </p>
             {elites.length === 0 ? (
               <div className="flex flex-col items-center gap-1.5 py-3">
                 <Crown className="w-6 h-6 text-yellow-400/30" />
-                <p className="text-[11px] text-muted-foreground text-center">No Elite Thinkers yet. Be the first to reach 8,000 rep!</p>
+                <p className="text-[11px] text-muted-foreground text-center">No Elite Thinkers yet. Be the first to reach 1,000 rep!</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">

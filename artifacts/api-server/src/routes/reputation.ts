@@ -25,10 +25,10 @@ export const REP_VALUES: Record<string, number> = {
 };
 
 function titleForScore(score: number): string {
-  if (score >= 8000) return "Elite Thinker";
-  if (score >= 3000) return "Intellectual";
-  if (score >= 1000) return "Scholar";
-  if (score >= 300) return "Thinker";
+  if (score >= 1000) return "Elite Thinker";
+  if (score >= 600)  return "Intellectual";
+  if (score >= 300)  return "Scholar";
+  if (score >= 100)  return "Thinker";
   return "Novice";
 }
 

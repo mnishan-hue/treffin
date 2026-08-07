@@ -15,11 +15,11 @@ import { useToast } from "@/hooks/use-toast";
 import { getApiUrl } from "@/lib/api-url";
 
 const LEVELS = [
-  { name: "Novice", min: 0, max: 999, color: "text-slate-400", bg: "bg-slate-400", border: "border-slate-400/30", glow: "" },
-  { name: "Thinker", min: 1000, max: 2499, color: "text-blue-400", bg: "bg-blue-400", border: "border-blue-400/30", glow: "shadow-[0_0_12px_rgba(96,165,250,0.3)]" },
-  { name: "Scholar", min: 2500, max: 4999, color: "text-indigo-400", bg: "bg-indigo-400", border: "border-indigo-400/30", glow: "shadow-[0_0_12px_rgba(129,140,248,0.3)]" },
-  { name: "Intellectual", min: 5000, max: 7999, color: "text-orange-400", bg: "bg-orange-400", border: "border-orange-400/30", glow: "shadow-[0_0_12px_rgba(251,146,60,0.3)]" },
-  { name: "Elite Thinker", min: 8000, max: Infinity, color: "text-yellow-400", bg: "bg-yellow-400", border: "border-yellow-400/30", glow: "shadow-[0_0_12px_rgba(250,204,21,0.3)]" },
+  { name: "Novice",        min: 0,    max: 99,   color: "text-slate-400",  bg: "bg-slate-400",  border: "border-slate-400/30",  glow: "" },
+  { name: "Thinker",       min: 100,  max: 299,  color: "text-blue-400",   bg: "bg-blue-400",   border: "border-blue-400/30",   glow: "shadow-[0_0_12px_rgba(96,165,250,0.3)]" },
+  { name: "Scholar",       min: 300,  max: 599,  color: "text-indigo-400", bg: "bg-indigo-400", border: "border-indigo-400/30", glow: "shadow-[0_0_12px_rgba(129,140,248,0.3)]" },
+  { name: "Intellectual",  min: 600,  max: 999,  color: "text-orange-400", bg: "bg-orange-400", border: "border-orange-400/30", glow: "shadow-[0_0_12px_rgba(251,146,60,0.3)]" },
+  { name: "Elite Thinker", min: 1000, max: Infinity, color: "text-yellow-400", bg: "bg-yellow-400", border: "border-yellow-400/30", glow: "shadow-[0_0_12px_rgba(250,204,21,0.3)]" },
 ];
 
 function getLevel(rep: number) {

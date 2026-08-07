@@ -175,7 +175,7 @@ function PublicLeaderboard() {
                   <p className="text-sm font-semibold truncate">{t.name}</p>
                   <div className="flex items-center gap-1.5">
                     <p className="text-[11px] text-muted-foreground truncate">{t.title}</p>
-                    {t.reputationScore >= 8000 && (
+                    {t.reputationScore >= 1000 && (
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.25)" }}>
                         ✦ Elite
                       </span>
