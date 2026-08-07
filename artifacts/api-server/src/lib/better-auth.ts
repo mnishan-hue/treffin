@@ -76,18 +76,29 @@ export const auth = betterAuth({
     },
   },
 
-  // When OAuth fails (e.g. account_not_linked), redirect back to the
-  // frontend sign-in page with ?error=... instead of landing on the API root.
-  pages: {
-    error: `${process.env.FRONTEND_URL ?? "https://thetreffin.com"}/sign-in`,
+  // When OAuth fails, redirect to the frontend sign-in page with ?error=...
+  // IMPORTANT: Better Auth v1.6.x uses onAPIError.errorURL for this — the
+  // `pages` key does NOT exist and is silently ignored.
+  onAPIError: {
+    errorURL: `${process.env.FRONTEND_URL ?? "https://thetreffin.com"}/sign-in`,
   },
 
   // Allow Google OAuth to link to an existing email/password account.
-  // Without this, signing in with a Google account whose email already
-  // exists in ba_user (from a prior email signup) returns account_not_linked.
-  accountLinking: {
-    enabled: true,
-    trustedProviders: ["google"],
+  //
+  // IMPORTANT: accountLinking MUST be nested inside `account:` — placed at the
+  // top level it is silently ignored (Better Auth reads
+  // options.account?.accountLinking, confirmed from v1.6.25 bundle source).
+  //
+  // trustedProviders: ["google"] bypasses the requireLocalEmailVerified check,
+  // which otherwise fires for any user whose ba_user.emailVerified is false
+  // (all email/password signups by default since no email-verification step is
+  // configured). Without this, any existing email/password user gets
+  // account_not_linked when they attempt Google sign-in.
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"],
+    },
   },
 
   // Frontend (thetreffin.com) and API (treffin-api.onrender.com) are on
