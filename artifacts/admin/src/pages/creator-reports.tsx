@@ -1,15 +1,19 @@
 import { useState } from "react";
-import {
-  useAdminGetDebateCreatorReports,
-  useAdminResolveDebateCreatorReport,
-  getAdminGetDebateCreatorReportsQueryKey,
-} from "@workspace/api-client-react";
-import {
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+// Import only the TypeScript types from the generated client — not the hooks.
+// The generated hooks use customFetch which sends a Better Auth session cookie
+// but NOT the x-admin-token header required by requireAdmin middleware → 401.
+// We use useAdminFetch (which injects x-admin-token) with manual useQuery /
+// useMutation instead.
+import type {
   DebateCreatorReport,
-  ResolveCreatorReportInputStatus,
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useAdminFetch } from "@/hooks/use-admin-fetch";
 import DebateModeration from "@/pages/debate-moderation";
+
+type ResolveCreatorReportInputStatus = "dismissed" | "upheld";
+
+const CREATOR_REPORTS_QUERY_KEY = ["admin-debate-creator-reports"] as const;
 
 const STATUS_STYLES: Record<string, string> = {
   pending: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -31,13 +35,24 @@ interface ResolvePanel {
 
 export default function CreatorReports() {
   const queryClient = useQueryClient();
-  const { data: reports = [], isLoading } = useAdminGetDebateCreatorReports();
-  const resolve = useAdminResolveDebateCreatorReport({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getAdminGetDebateCreatorReportsQueryKey() });
-        setPanel(null);
-      },
+  const adminFetch = useAdminFetch();
+
+  const { data: reports = [], isLoading } = useQuery<DebateCreatorReport[]>({
+    queryKey: CREATOR_REPORTS_QUERY_KEY,
+    queryFn: () =>
+      adminFetch("/api/admin/debate-creator-reports").then((r) => r.json()),
+    refetchInterval: 30_000,
+  });
+
+  const resolve = useMutation({
+    mutationFn: ({ id, status, adminNote }: { id: number; status: ResolveCreatorReportInputStatus; adminNote?: string }) =>
+      adminFetch(`/api/admin/debate-creator-reports/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status, adminNote }),
+      }).then((r) => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: CREATOR_REPORTS_QUERY_KEY });
+      setPanel(null);
     },
   });
 
@@ -61,7 +76,7 @@ export default function CreatorReports() {
 
   const handleSubmit = () => {
     if (!panel) return;
-    resolve.mutate({ id: panel.report.id, data: { status: panel.status, adminNote: panel.adminNote || undefined } });
+    resolve.mutate({ id: panel.report.id, status: panel.status, adminNote: panel.adminNote || undefined });
   };
 
   if (isLoading) {
