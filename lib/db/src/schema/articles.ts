@@ -1,6 +1,7 @@
 import { pgTable, serial, text, integer, boolean, timestamp } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 export const articlesTable = pgTable("articles", {
   id: serial("id").primaryKey(),
@@ -8,7 +9,7 @@ export const articlesTable = pgTable("articles", {
   excerpt: text("excerpt"),
   content: text("content"),
   imageUrl: text("image_url"),
-  authorId: integer("author_id").notNull(),
+  authorId: integer("author_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   category: text("category"),
   readTime: integer("read_time").notNull().default(5),
   likes: integer("likes").notNull().default(0),

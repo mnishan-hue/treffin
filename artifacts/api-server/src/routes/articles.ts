@@ -80,9 +80,10 @@ router.get("/articles", async (req, res) => {
       : sort === "trending" ? [desc(articlesTable.isTrending), desc(articlesTable.isFeatured), desc(articlesTable.createdAt)]
       : [desc(articlesTable.createdAt)];
 
+    const visibility = and(eq(articlesTable.status, "published"), eq(articlesTable.isRemoved, false));
     const where = category
-      ? and(sql`lower(${articlesTable.category}) = lower(${category})`)
-      : undefined;
+      ? and(visibility, sql`lower(${articlesTable.category}) = lower(${category})`)
+      : visibility;
 
     // Single JOIN to get articles + authors — no N+1
     const rows = await db
@@ -155,7 +156,7 @@ router.get("/articles/:id", async (req, res) => {
       db.select({ article: articlesTable, author: usersTable })
         .from(articlesTable)
         .leftJoin(usersTable, eq(articlesTable.authorId, usersTable.id))
-        .where(eq(articlesTable.id, id))
+        .where(and(eq(articlesTable.id, id), eq(articlesTable.status, "published"), eq(articlesTable.isRemoved, false)))
         .limit(1),
       db.select()
         .from(articleReviewRequestsTable)
@@ -227,6 +228,10 @@ router.post("/articles", async (req, res) => {
       peerReview?: boolean;
     };
 
+    if (!title?.trim()) {
+      return res.status(400).json({ error: "title is required" });
+    }
+
     // Toxicity check (blocking)
     const toxicityResult = checkToxicity(`${title ?? ""} ${content ?? ""}`);
     if (toxicityResult.blocked) {
@@ -250,7 +255,7 @@ router.post("/articles", async (req, res) => {
     const [article] = await db.transaction(async (tx) => {
       const [inserted] = await tx
         .insert(articlesTable)
-        .values({ title, excerpt, content, category, imageUrl: imageUrl ?? null, authorId: author.id, readTime, likes: 0, toxicityFlagged: toxicityResult.flagged, aiSuspected: aiResult.flagged })
+        .values({ title: title.trim(), excerpt: excerpt?.trim(), content, category, imageUrl: imageUrl ?? null, authorId: author.id, readTime, likes: 0, toxicityFlagged: toxicityResult.flagged, aiSuspected: aiResult.flagged })
         .returning();
       await tx
         .update(usersTable)
@@ -294,72 +299,56 @@ router.post("/articles", async (req, res) => {
 });
 
 router.post("/articles/:id/like", async (req, res) => {
-  const actorClerkId = req.betterAuthSession?.user?.id ?? null;
-  if (!actorClerkId) { res.status(401).json({ error: "Sign in to like articles" }); return; }
+  const actorId = req.betterAuthSession?.user?.id ?? null;
+  if (!actorId) { res.status(401).json({ error: "Sign in to like articles" }); return; }
 
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid article id" }); return; }
-
-    const [article] = await db.select().from(articlesTable).where(eq(articlesTable.id, id)).limit(1);
-    if (!article) { res.status(404).json({ error: "Article not found" }); return; }
-
-    const [existing] = await db
-      .select()
-      .from(articleLikesTable)
-      .where(and(eq(articleLikesTable.articleId, id), eq(articleLikesTable.userId, actorClerkId)))
-      .limit(1);
-
-    let updated: typeof articlesTable.$inferSelect;
-
-    if (existing) {
-      // Unlike: remove the row and decrement
-      await db.delete(articleLikesTable).where(eq(articleLikesTable.id, existing.id));
-      [updated] = await db
-        .update(articlesTable)
-        .set({ likes: sql`GREATEST(0, ${articlesTable.likes} - 1)` })
-        .where(eq(articlesTable.id, id))
-        .returning();
-    } else {
-      // Like: insert row and increment
-      await db.insert(articleLikesTable).values({ articleId: id, userId: actorClerkId });
-      [updated] = await db
-        .update(articlesTable)
-        .set({ likes: sql`${articlesTable.likes} + 1` })
-        .where(eq(articlesTable.id, id))
-        .returning();
-
-      // Award rep to the article author for receiving a like
-      try {
-        const [articleAuthor] = await db
-          .select({ clerkId: usersTable.clerkId })
-          .from(usersTable)
-          .where(eq(usersTable.id, updated.authorId))
-          .limit(1);
-        if (articleAuthor?.clerkId) {
-          await awardRep(articleAuthor.clerkId, "article_liked", "Article received a like", updated.id);
-        }
-      } catch { /* non-blocking */ }
-
-      // Notify author only on new likes (not unlikes)
-      const [actor] = await db
-        .select({ name: usersTable.name })
-        .from(usersTable)
-        .where(eq(usersTable.betterAuthId, actorClerkId))
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(2, ${id})`);
+      const [article] = await tx.select().from(articlesTable).where(eq(articlesTable.id, id)).limit(1);
+      if (!article || article.isRemoved || article.status !== "published") return { kind: "missing" as const };
+      const [existing] = await tx
+        .select({ id: articleLikesTable.id })
+        .from(articleLikesTable)
+        .where(and(eq(articleLikesTable.articleId, id), eq(articleLikesTable.userId, actorId)))
         .limit(1);
-      await createNotification({
+      const liked = !existing;
+      if (existing) {
+        await tx.delete(articleLikesTable).where(eq(articleLikesTable.id, existing.id));
+      } else {
+        await tx.insert(articleLikesTable).values({ articleId: id, userId: actorId }).onConflictDoNothing();
+      }
+      const [{ count }] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(articleLikesTable)
+        .where(eq(articleLikesTable.articleId, id));
+      const [updated] = await tx
+        .update(articlesTable)
+        .set({ likes: count })
+        .where(eq(articlesTable.id, id))
+        .returning();
+      return { kind: "ok" as const, updated, liked };
+    });
+    if (result.kind === "missing") { res.status(404).json({ error: "Article not found" }); return; }
+    const { updated, liked } = result;
+    const [author] = await db.select().from(usersTable).where(eq(usersTable.id, updated.authorId)).limit(1);
+    if (liked && author?.betterAuthId && author.betterAuthId !== actorId) {
+      awardRep(author.betterAuthId, "article_liked", "Article received a like", updated.id)
+        .catch((err) => req.log.warn({ err, articleId: id }, "Failed to award article-like reputation"));
+      const [actor] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.betterAuthId, actorId)).limit(1);
+      createNotification({
         targetDbUserId: updated.authorId,
-        actorClerkId,
+        actorClerkId: actorId,
         actorDisplayName: actor?.name ?? "Someone",
         type: "like",
         title: "Someone liked your article",
         body: `"${updated.title}"`,
         batchKey: `article_liked:${id}`,
         batchBody: "{count} people liked your article",
-      }, req.log);
+      }, req.log).catch((err) => req.log.warn({ err, articleId: id }, "Failed to send article-like notification"));
     }
-
-    const [author] = await db.select().from(usersTable).where(eq(usersTable.id, updated.authorId)).limit(1);
     res.json({
       id: updated.id,
       title: updated.title,
@@ -373,7 +362,7 @@ router.post("/articles/:id/like", async (req, res) => {
       readTime: updated.readTime,
       likes: updated.likes,
       isVerified: author?.isVerified ?? false,
-      liked: !existing,
+      liked,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to like article");
@@ -388,7 +377,7 @@ router.get("/articles/:id/comments", async (req, res) => {
     const rows = await db
       .select()
       .from(commentsTable)
-      .where(eq(commentsTable.postId, articleId))
+      .where(eq(commentsTable.articleId, articleId))
       .orderBy(asc(commentsTable.createdAt));
     res.json(rows.map(c => ({
       id: c.id,
@@ -420,13 +409,15 @@ router.post("/articles/:id/comments", async (req, res) => {
       res.status(404).json({ error: "Article not found" }); return;
     }
 
-    const { authorName, content } = req.body as {
-      authorName: string;
+    const clerkIdForComment = req.betterAuthSession?.user?.id ?? null;
+    if (!clerkIdForComment) { res.status(401).json({ error: "Sign in to comment" }); return; }
+
+    const { content } = req.body as {
       content: string;
     };
 
-    if (!authorName || !content) {
-      res.status(400).json({ error: "authorName and content are required" }); return;
+    if (!content?.trim()) {
+      res.status(400).json({ error: "content is required" }); return;
     }
 
     // Toxicity check (blocking)
@@ -436,16 +427,20 @@ router.post("/articles/:id/comments", async (req, res) => {
     }
 
     // Look up DB user from Clerk session for correct authorId
-    const clerkIdForComment = req.betterAuthSession?.user?.id ?? null;
     let resolvedAuthorId = 0;
-    let resolvedAuthorName = authorName;
-    if (clerkIdForComment) {
+    let resolvedAuthorName = "Unknown";
+    {
       const [dbUser] = await db
         .select({ id: usersTable.id, name: usersTable.name })
         .from(usersTable)
         .where(eq(usersTable.betterAuthId, clerkIdForComment))
         .limit(1);
-      if (dbUser) {
+      if (!dbUser) {
+        const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+        if (!provisioned) { res.status(503).json({ error: "Could not create user profile" }); return; }
+        resolvedAuthorId = provisioned.id;
+        resolvedAuthorName = provisioned.name;
+      } else {
         resolvedAuthorId = dbUser.id;
         resolvedAuthorName = dbUser.name;
       }
@@ -453,7 +448,7 @@ router.post("/articles/:id/comments", async (req, res) => {
 
     const [comment] = await db
       .insert(commentsTable)
-      .values({ postId: articleId, authorId: resolvedAuthorId, authorName: resolvedAuthorName, content, isFlagged: toxicityResult.flagged, toxicityFlagged: toxicityResult.flagged })
+      .values({ articleId, authorId: resolvedAuthorId, authorName: resolvedAuthorName, content: content.trim(), isFlagged: toxicityResult.flagged, toxicityFlagged: toxicityResult.flagged })
       .returning();
 
     if (clerkIdForComment) {
@@ -502,7 +497,13 @@ router.delete("/articles/:id", async (req, res) => {
     if (article.authorId !== dbUser.id) {
       res.status(403).json({ error: "Not the article owner" }); return;
     }
-    await db.delete(articlesTable).where(eq(articlesTable.id, id));
+    await db.transaction(async (tx) => {
+      await tx.delete(articlesTable).where(eq(articlesTable.id, id));
+      await tx
+        .update(usersTable)
+        .set({ articlesPublished: sql`(SELECT count(*)::int FROM ${articlesTable} WHERE ${articlesTable.authorId} = ${dbUser.id} AND ${articlesTable.status} = 'published' AND ${articlesTable.isRemoved} = false)` })
+        .where(eq(usersTable.id, dbUser.id));
+    });
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete article");

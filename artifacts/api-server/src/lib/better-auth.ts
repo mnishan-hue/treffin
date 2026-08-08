@@ -13,6 +13,11 @@ import { eq } from "drizzle-orm";
 import { toNodeHandler } from "better-auth/node";
 import { jitProvisionUser } from "./jit-provision";
 
+const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET;
+if (!authSecret || authSecret.length < 32) {
+  throw new Error("BETTER_AUTH_SECRET (or SESSION_SECRET) must contain at least 32 characters");
+}
+
 /**
  * Build the trusted-origins list from the same env vars already used by CORS,
  * plus any explicit Better Auth overrides.
@@ -41,7 +46,7 @@ function buildTrustedOrigins(): string[] {
 export const auth = betterAuth({
   // Use BETTER_AUTH_SECRET if set; fall back to SESSION_SECRET so the
   // existing secret already in Replit works without extra provisioning.
-  secret: process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET,
+  secret: authSecret,
 
   // In production set BETTER_AUTH_BASE_URL to the full API origin,
   // e.g. https://treffin-api.onrender.com.  Leave it empty in dev and

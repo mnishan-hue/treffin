@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 // Import only the TypeScript types from the generated client — not the hooks.
 // The generated hooks use customFetch which sends a Better Auth session cookie
-// but NOT the x-admin-token header required by requireAdmin middleware → 401.
-// We use useAdminFetch (which injects x-admin-token) with manual useQuery /
+// Generated public hooks do not include the credentialed admin session or CSRF policy.
+// We use useAdminFetch (which includes credentials and CSRF protection) with manual useQuery /
 // useMutation instead.
 import type {
   DebateCreatorReport,
@@ -94,7 +94,7 @@ export default function CreatorReports() {
         onControlChanged={() => {
           // Toggle adminModerating in local state so the button label flips instantly
           setModeratingDebate(prev => prev ? { ...prev, adminModerating: !prev.adminModerating } : null);
-          queryClient.invalidateQueries({ queryKey: getAdminGetDebateCreatorReportsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: CREATOR_REPORTS_QUERY_KEY });
         }}
       />
     );

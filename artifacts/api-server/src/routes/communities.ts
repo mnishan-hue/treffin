@@ -328,6 +328,10 @@ router.delete("/communities/:id/leave", async (req, res) => {
     }
     const userId = leaveUser.id;
 
+    const [community] = await db.select({ creatorId: communitiesTable.creatorId }).from(communitiesTable).where(eq(communitiesTable.id, id)).limit(1);
+    if (!community) { res.status(404).json({ error: "Community not found" }); return; }
+    if (community.creatorId === userId) { res.status(409).json({ error: "Transfer community ownership before leaving" }); return; }
+
     const [existing] = await db
       .select({ status: communityMembersTable.status })
       .from(communityMembersTable)
@@ -424,15 +428,26 @@ router.post("/communities/:id/requests/:userId/approve", async (req, res) => {
       res.status(403).json({ error: "Only the creator can approve requests" }); return;
     }
 
-    await db
-      .update(communityMembersTable)
-      .set({ status: "member" })
-      .where(and(eq(communityMembersTable.communityId, id), eq(communityMembersTable.userId, targetUserId)));
-
-    await db
-      .update(communitiesTable)
-      .set({ memberCount: sql`${communitiesTable.memberCount} + 1` })
-      .where(eq(communitiesTable.id, id));
+    const approved = await db.transaction(async (tx) => {
+      const rows = await tx
+        .update(communityMembersTable)
+        .set({ status: "member" })
+        .where(and(
+          eq(communityMembersTable.communityId, id),
+          eq(communityMembersTable.userId, targetUserId),
+          eq(communityMembersTable.status, "pending"),
+        ))
+        .returning({ userId: communityMembersTable.userId });
+      if (rows.length === 0) return false;
+      await tx
+        .update(communitiesTable)
+        .set({ memberCount: sql`(SELECT count(*)::int FROM ${communityMembersTable} WHERE ${communityMembersTable.communityId} = ${id} AND ${communityMembersTable.status} = 'member')` })
+        .where(eq(communitiesTable.id, id));
+      return true;
+    });
+    if (!approved) {
+      res.status(409).json({ error: "Join request is no longer pending" }); return;
+    }
 
     void createNotification(
       {
@@ -565,6 +580,41 @@ router.get("/communities/:id/posts", async (req, res) => {
   }
 });
 
+router.post("/communities/:id/transfer-ownership", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const targetUserId = Number(req.body?.userId);
+    if (!Number.isInteger(id) || !Number.isInteger(targetUserId)) { res.status(400).json({ error: "Valid community id and userId are required" }); return; }
+    const actorId = req.betterAuthSession?.user?.id ?? null;
+    if (!actorId) { res.status(401).json({ error: "Sign in required" }); return; }
+    const actor = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+    if (!actor) { res.status(503).json({ error: "Could not create user profile" }); return; }
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(4, ${id})`);
+      const [community] = await tx.select().from(communitiesTable).where(eq(communitiesTable.id, id)).limit(1);
+      if (!community) return { kind: "missing" as const };
+      if (community.creatorId !== actor.id) return { kind: "forbidden" as const };
+      if (targetUserId === actor.id) return { kind: "same" as const };
+      const [target] = await tx.select({ userId: communityMembersTable.userId }).from(communityMembersTable)
+        .where(and(eq(communityMembersTable.communityId, id), eq(communityMembersTable.userId, targetUserId), eq(communityMembersTable.status, "member"))).limit(1);
+      if (!target) return { kind: "not-member" as const };
+      await tx.update(communitiesTable).set({ creatorId: targetUserId }).where(eq(communitiesTable.id, id));
+      await tx.update(communityMembersTable).set({ role: "member" }).where(and(eq(communityMembersTable.communityId, id), eq(communityMembersTable.userId, actor.id)));
+      await tx.update(communityMembersTable).set({ role: "moderator" }).where(and(eq(communityMembersTable.communityId, id), eq(communityMembersTable.userId, targetUserId)));
+      return { kind: "ok" as const, name: community.name };
+    });
+    if (result.kind === "missing") { res.status(404).json({ error: "Community not found" }); return; }
+    if (result.kind === "forbidden") { res.status(403).json({ error: "Only the current owner can transfer ownership" }); return; }
+    if (result.kind === "same") { res.status(409).json({ error: "You already own this community" }); return; }
+    if (result.kind === "not-member") { res.status(409).json({ error: "The new owner must be an approved member" }); return; }
+    createNotification({ targetDbUserId: targetUserId, actorClerkId: actorId, actorDisplayName: actor.name, type: "community", title: "Community ownership transferred", body: `You are now the owner of ${result.name}` }, req.log)
+      .catch((err) => req.log.warn({ err, communityId: id }, "Failed to notify new community owner"));
+    res.json({ ok: true, creatorId: targetUserId });
+  } catch (err) {
+    req.log.error({ err }, "Failed to transfer community ownership");
+    res.status(500).json({ error: "Failed to transfer ownership" });
+  }
+});
 router.patch("/communities/:id/rules", async (req, res) => {
   try {
     const id = Number(req.params.id);

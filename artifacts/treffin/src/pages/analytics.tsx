@@ -34,18 +34,30 @@ type AnalyticsData = {
   eventBreakdown: { type: string; label: string; count: number; totalPoints: number }[];
 };
 
-function useAnalytics() {
+function useAnalytics(enabled: boolean) {
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    customFetch<AnalyticsData>("/api/analytics/me", { method: "GET" })
+    if (!enabled) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError(null);
+    customFetch<AnalyticsData>("/api/analytics/me", { method: "GET", signal: controller.signal })
       .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(reason instanceof Error ? reason.message : "Analytics could not be loaded");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [enabled, attempt]);
 
-  return { data, loading };
+  return { data, loading, error, retry: () => setAttempt((value) => value + 1) };
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -198,7 +210,7 @@ function PublicLeaderboard() {
 export default function Analytics() {
   const { isSignedIn, isLoaded } = useSession();
   const [, setLocation] = useLocation();
-  const { data, loading } = useAnalytics();
+  const { data, loading, error, retry } = useAnalytics(isLoaded && isSignedIn);
 
   if (isLoaded && !isSignedIn) {
     return (
@@ -219,6 +231,23 @@ export default function Analytics() {
               Sign in
             </button>
           </div>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col gap-6">
+          <div role="alert" className="bg-destructive/10 border border-destructive/30 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <h1 className="text-lg font-bold">Analytics could not be loaded</h1>
+              <p className="text-xs text-muted-foreground mt-1">{error}</p>
+            </div>
+            <button type="button" onClick={retry} className="text-xs font-semibold border border-destructive/40 text-destructive px-4 py-2 rounded-lg hover:bg-destructive/10" data-testid="button-retry-analytics">Try again</button>
+          </div>
+          <PublicLeaderboard />
         </div>
       </AppLayout>
     );

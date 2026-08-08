@@ -5,13 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 
 const BASE = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
-async function sha256hex(s: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 async function api<T>(
   method: string,
   path: string,
@@ -20,9 +13,10 @@ async function api<T>(
 ): Promise<T> {
   const res = await fetch(`${BASE}/api${path}`, {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      "x-admin-token": token,
+      ...(method === "GET" ? {} : { "x-admin-csrf": "1" }),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -415,7 +409,7 @@ function ConfirmModal({
 
 /* ── Login ───────────────────────────────────────────────────────────────── */
 
-function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("admin@treffin.com");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -429,13 +423,12 @@ function LoginScreen({ onLogin }: { onLogin: (token: string) => void }) {
       // POST to /admin/login so it works in both plain-password and bcrypt modes
       const res = await fetch(`${BASE}/api/admin/login`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
       if (!res.ok) throw new Error("Invalid credentials");
-      const { token } = await res.json() as { token: string };
-      localStorage.setItem("treffin_admin_token", token);
-      onLogin(token);
+      onLogin();
     } catch {
       setError("Invalid email or password.");
     } finally {
@@ -2198,16 +2191,26 @@ function AdminPanel({ token, onLogout }: { token: string; onLogout: () => void }
 /* ══ EXPORTED PAGE ═══════════════════════════════════════════════════════════ */
 
 export default function Admin() {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem("treffin_admin_token"));
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null);
 
-  function handleLogout() {
-    localStorage.removeItem("treffin_admin_token");
-    setToken(null);
+  useEffect(() => {
+    let active = true;
+    void fetch(`${BASE}/api/admin/session`, { credentials: "include" })
+      .then((response) => { if (active) setAuthenticated(response.ok); })
+      .catch(() => { if (active) setAuthenticated(false); });
+    return () => { active = false; };
+  }, []);
+
+  async function handleLogout() {
+    await fetch(`${BASE}/api/admin/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "x-admin-csrf": "1" },
+    }).catch(() => undefined);
+    setAuthenticated(false);
   }
 
-  if (!token) {
-    return <LoginScreen onLogin={setToken} />;
-  }
-
-  return <AdminPanel token={token} onLogout={handleLogout} />;
+  if (authenticated === null) return null;
+  if (!authenticated) return <LoginScreen onLogin={() => setAuthenticated(true)} />;
+  return <AdminPanel token="" onLogout={() => { void handleLogout(); }} />;
 }

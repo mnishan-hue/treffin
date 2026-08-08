@@ -317,7 +317,7 @@ function ArgumentCard({
   const net = arg.upvotes - arg.downvotes;
 
   return (
-    <div className={cn("space-y-2", depth > 0 && "pl-4 border-l border-white/8")}>
+    <div className={cn("space-y-2", depth > 0 && "pl-2 sm:pl-4 border-l border-white/8")}>
       <div className="flex gap-2.5 group">
         {/* Vote column */}
         <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0">
@@ -548,7 +548,7 @@ function SolutionCard({
         <SolutionDNA sol={sol} compact />
 
         {/* Axis vote grid */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {AXIS_META.map(({ key, icon, label, color: c, bg, border }) => (
             <AxisVoteTile
               key={key}
@@ -826,7 +826,7 @@ export default function MathEleganceBattle() {
         <div className="container mx-auto px-4 py-10 max-w-6xl space-y-6">
           <Skeleton className="h-8 w-48 bg-white/8" />
           <Skeleton className="h-40 w-full rounded-2xl bg-white/5" />
-          <div className="grid md:grid-cols-2 gap-5">
+          <div className="grid lg:grid-cols-2 gap-5">
             <Skeleton className="h-[580px] rounded-2xl bg-white/5" />
             <Skeleton className="h-[580px] rounded-2xl bg-white/5" />
           </div>
@@ -1005,7 +1005,7 @@ export default function MathEleganceBattle() {
               <div
                 className={cn(
                   "gap-5",
-                  data.solutions.length >= 2 ? "grid md:grid-cols-2" : "max-w-2xl mx-auto",
+                  data.solutions.length >= 2 ? "grid lg:grid-cols-2" : "max-w-2xl mx-auto",
                   activePanel && "lg:pr-[400px]",
                 )}
               >

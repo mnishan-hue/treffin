@@ -40,12 +40,14 @@ import {
   Clock,
   UserCheck,
   UserX,
+  ArrowRightLeft,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { PostCard } from "@/components/feed/post-card";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "@/lib/auth-client";
+import { getApiUrl } from "@/lib/api-url";
 
 const DEFAULT_RULES = [
   "Be respectful and constructive",
@@ -104,6 +106,15 @@ export default function CommunityRoom() {
   const updateRulesMutation = useUpdateCommunityRules();
   const approveMutation = useApproveCommunityJoinRequest();
   const denyMutation = useDenyCommunityJoinRequest();
+  const transferMutation = useMutation({
+    mutationFn: async ({ userId }: { userId: number }) => {
+      const response = await fetch(getApiUrl(`/api/communities/${communityId}/transfer-ownership`), {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }),
+      });
+      if (!response.ok) throw { data: await response.json().catch(() => ({})) };
+      return response.json() as Promise<{ ok: boolean; creatorId: number }>;
+    },
+  });
 
   const { data: currentUserProfile } = useGetCurrentUser({
     query: { enabled: !!user, queryKey: getGetCurrentUserQueryKey() },
@@ -198,6 +209,14 @@ export default function CommunityRoom() {
         }
       );
     }
+  };
+
+  const handleTransferOwnership = (targetUserId: number, targetName: string) => {
+    if (!window.confirm(`Transfer ownership of ${community?.name} to ${targetName}? You will remain a member.`)) return;
+    transferMutation.mutate({ userId: targetUserId }, {
+      onSuccess: () => { invalidateAll(); toast({ title: "Ownership transferred", description: `${targetName} is now the community owner.` }); },
+      onError: (err: unknown) => { const message = (err as { data?: { error?: string } })?.data?.error ?? "Failed to transfer ownership."; toast({ title: "Transfer failed", description: message, variant: "destructive" }); },
+    });
   };
 
   const handlePost = () => {
@@ -378,13 +397,13 @@ export default function CommunityRoom() {
           {/* Left: tabs + content */}
           <div className="flex flex-col gap-4">
             {/* Tab bar */}
-            <div className="flex items-center gap-1 bg-card border border-border/60 rounded-xl p-1">
+            <div className="flex items-center gap-1 bg-card border border-border/60 rounded-xl p-1 overflow-x-auto">
               {tabs.map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={cn(
-                    "flex-1 py-2 text-sm font-semibold rounded-lg transition-all relative",
+                    "flex-none min-w-[92px] sm:flex-1 py-2 text-sm font-semibold rounded-lg transition-all relative",
                     activeTab === tab
                       ? "treffin-gradient text-white shadow"
                       : "text-muted-foreground hover:text-foreground"
@@ -414,7 +433,7 @@ export default function CommunityRoom() {
                     <p className="text-sm font-semibold text-muted-foreground">Share with the community</p>
 
                     {/* Type + Topic selectors */}
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <select
                         value={postType}
                         onChange={e => setPostType(e.target.value as PostInputType)}
@@ -534,10 +553,17 @@ export default function CommunityRoom() {
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">{member.title}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-bold text-primary">{formatNumber(member.reputationScore)}</p>
-                        <p className="text-[10px] text-muted-foreground">rep</p>
+                      </div>                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <p className="text-xs font-bold text-primary">{formatNumber(member.reputationScore)}</p>
+                          <p className="text-[10px] text-muted-foreground">rep</p>
+                        </div>
+                        {isCreator && currentUserProfile?.id !== member.userId && (
+                          <button type="button" onClick={() => handleTransferOwnership(member.userId, member.name)} disabled={transferMutation.isPending} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-border px-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-50" aria-label={`Transfer ownership to ${member.name}`}>
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Transfer</span>
+                          </button>
+                        )}
                       </div>
                     </motion.div>
                   ))

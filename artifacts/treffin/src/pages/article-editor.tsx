@@ -234,7 +234,7 @@ function CoverZone({ imageUrl, imageError, onSet, onError, onClear }: {
   }
   if (inputVisible) {
     return (
-      <div className="mb-6 flex gap-2">
+      <div className="mb-6 flex flex-col sm:flex-row gap-2">
         <input autoFocus value={inputVal} onChange={(e) => setInputVal(e.target.value)}
           placeholder="Paste image URL…"
           className="flex-1 bg-secondary/30 border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
@@ -554,7 +554,7 @@ export default function ArticleEditor() {
   /* ── Focus mode overlay ────────────────────────────────────────── */
   const focusModeContent = (
     <div
-      className="fixed inset-0 z-50 flex flex-col"
+      className="fixed inset-0 z-50 flex flex-col h-[100dvh]"
       style={{ background: "var(--color-background)" }}
     >
       {/* Focus top bar */}

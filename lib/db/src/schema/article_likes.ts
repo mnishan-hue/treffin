@@ -1,8 +1,9 @@
+import { articlesTable } from "./articles";
 import { pgTable, serial, text, integer, timestamp, unique, index } from "drizzle-orm/pg-core";
 
 export const articleLikesTable = pgTable("article_likes", {
   id: serial("id").primaryKey(),
-  articleId: integer("article_id").notNull(),
+  articleId: integer("article_id").notNull().references(() => articlesTable.id, { onDelete: "cascade" }),
   userId: text("user_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [

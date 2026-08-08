@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { setGlobalHeaders, setAuthTokenGetter, useSyncCurrentUser } from "@workspace/api-client-react";
+import { lazy, Suspense, useEffect, useRef } from "react";
+import { setAuthTokenGetter, useSyncCurrentUser } from "@workspace/api-client-react";
 import { syncMathUser, clearMathUser } from "@/lib/math-auth";
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -21,40 +21,42 @@ import { ProfileGuestView } from "@/components/profile-guest-view";
 import { authClient, getToken, useSession } from "@/lib/auth-client";
 import { SessionProvider } from "@/lib/session-provider";
 
-import Home from "@/pages/home";
-import Debates from "@/pages/debates";
-import DebateRoom from "@/pages/debate-room";
-import Articles from "@/pages/articles";
-import ArticleDetail from "@/pages/article-detail";
-import ArticleEditor from "@/pages/article-editor";
-import Profile from "@/pages/profile";
-import Communities from "@/pages/communities";
-import CommunityRoom from "@/pages/community-room";
-import Notifications from "@/pages/notifications";
-import Analytics from "@/pages/analytics";
-import Saved from "@/pages/saved";
-import Onboarding from "@/pages/onboarding";
-import About from "@/pages/about";
-import Terms from "@/pages/terms";
-import Privacy from "@/pages/privacy";
-import NotFound from "@/pages/not-found";
-import Admin from "@/pages/admin";
-import Discover from "@/pages/discover";
-import SignIn from "@/pages/sign-in";
-import SignUp from "@/pages/sign-up";
-import MathHub from "@/pages/math/index";
-import ProblemDetail from "@/pages/math/problem-detail";
-import PostProblem from "@/pages/math/post-problem";
-import ProblemOfWeek from "@/pages/math/potw";
-import MathLeaderboard from "@/pages/math/leaderboard";
-import MathContests from "@/pages/math/contests";
-import MathContestDetail from "@/pages/math/contest-detail";
-import MathBookmarks from "@/pages/math/bookmarks";
-import MathUserProfile from "@/pages/math/user-profile";
-import MathNotifications from "@/pages/math/notifications";
-import MathShowdown from "@/pages/math/showdown";
-import MathEleganceBattle from "@/pages/math/elegance-battle";
 import { MathLayout } from "@/components/math/math-layout";
+
+const Home = lazy(() => import("@/pages/home"));
+const Debates = lazy(() => import("@/pages/debates"));
+const DebateRoom = lazy(() => import("@/pages/debate-room"));
+const Articles = lazy(() => import("@/pages/articles"));
+const ArticleDetail = lazy(() => import("@/pages/article-detail"));
+const ArticleEditor = lazy(() => import("@/pages/article-editor"));
+const Profile = lazy(() => import("@/pages/profile"));
+const Communities = lazy(() => import("@/pages/communities"));
+const CommunityRoom = lazy(() => import("@/pages/community-room"));
+const Notifications = lazy(() => import("@/pages/notifications"));
+const Analytics = lazy(() => import("@/pages/analytics"));
+const Saved = lazy(() => import("@/pages/saved"));
+const Onboarding = lazy(() => import("@/pages/onboarding"));
+const About = lazy(() => import("@/pages/about"));
+const Terms = lazy(() => import("@/pages/terms"));
+const Privacy = lazy(() => import("@/pages/privacy"));
+const NotFound = lazy(() => import("@/pages/not-found"));
+const Admin = lazy(() => import("@/pages/admin"));
+const Discover = lazy(() => import("@/pages/discover"));
+const SignIn = lazy(() => import("@/pages/sign-in"));
+const SignUp = lazy(() => import("@/pages/sign-up"));
+const MathHub = lazy(() => import("@/pages/math/index"));
+const ProblemDetail = lazy(() => import("@/pages/math/problem-detail"));
+const PostProblem = lazy(() => import("@/pages/math/post-problem"));
+const ProblemOfWeek = lazy(() => import("@/pages/math/potw"));
+const MathLeaderboard = lazy(() => import("@/pages/math/leaderboard"));
+const MathContests = lazy(() => import("@/pages/math/contests"));
+const MathContestDetail = lazy(() => import("@/pages/math/contest-detail"));
+const MathBookmarks = lazy(() => import("@/pages/math/bookmarks"));
+const MathUserProfile = lazy(() => import("@/pages/math/user-profile"));
+const MathNotifications = lazy(() => import("@/pages/math/notifications"));
+const MathShowdown = lazy(() => import("@/pages/math/showdown"));
+const MathEleganceBattle = lazy(() => import("@/pages/math/elegance-battle"));
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -101,10 +103,8 @@ function MathUserSync() {
     if (isSignedIn && user) {
       const displayName = user.fullName || user.email || "Member";
       syncMathUser(user.id, displayName);
-      setGlobalHeaders({ "x-math-user-id": user.id, "x-math-user-name": displayName });
     } else if (isLoaded && !isSignedIn) {
       clearMathUser();
-      setGlobalHeaders({});
     }
   }, [isSignedIn, isLoaded, user]);
 
@@ -185,6 +185,7 @@ function AppRouter() {
   return (
     <>
     <ScrollToTop />
+    <Suspense fallback={<RouteLoadingFallback />}>
     <Switch>
       <Route path="/" component={HomeRedirect} />
       <Route path="/home" component={HomeRedirect} />
@@ -222,7 +223,19 @@ function AppRouter() {
       <Route path="/math/notifications"><MathLayout><MathNotifications /></MathLayout></Route>
       <Route component={NotFound} />
     </Switch>
+    </Suspense>
     </>
+  );
+}
+
+function RouteLoadingFallback() {
+  return (
+    <main className="flex min-h-[50dvh] items-center justify-center px-4" aria-live="polite" aria-busy="true">
+      <div className="flex items-center gap-3 text-sm text-muted-foreground">
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-r-transparent" aria-hidden="true" />
+        Loading…
+      </div>
+    </main>
   );
 }
 

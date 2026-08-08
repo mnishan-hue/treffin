@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { jitProvisionUser } from "../lib/jit-provision";
+import { battleAcceptsInteraction } from "../lib/security-policy";
 import {
   mathCategoriesTable,
   mathProblemsTable,
@@ -267,11 +268,11 @@ router.get("/math/problems", async (req, res) => {
       solvedBy: req.query["solvedBy"] as string | undefined,
     });
 
-    const userId = req.headers["x-math-user-id"] as string | undefined;
+    const userId = req.betterAuthSession?.user?.id ?? undefined;
 
     // Update streak for authenticated hub visitors (fire-and-forget to avoid adding latency)
     if (userId && userId !== "anonymous") {
-      const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+      const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
       upsertMathUserProfile(userId, userName).catch(() => {/* non-critical */});
     }
 
@@ -419,7 +420,7 @@ router.post("/math/problems", async (req, res) => {
       return;
     }
     const userId = clerkUserId;
-    const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+    const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
 
     const { title, body, categoryId, difficulty, hints } = parsed.data;
 
@@ -499,7 +500,7 @@ router.get("/math/problems/:id", async (req, res) => {
     }
 
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    const userId = clerkUserId ?? (req.headers["x-math-user-id"] as string | undefined);
+    const userId = clerkUserId ?? undefined;
 
     const { id } = parsed.data;
 
@@ -522,7 +523,7 @@ router.get("/math/problems/:id", async (req, res) => {
         .where(eq(mathProblemsTable.id, id));
 
       // Update streak for authenticated user who views a problem
-      const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+      const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
       await upsertMathUserProfile(clerkUserId, userName);
     }
 
@@ -579,7 +580,7 @@ router.get("/math/problems/:id/difficulty-stats", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-    const userId = req.headers["x-math-user-id"] as string | undefined;
+    const userId = req.betterAuthSession?.user?.id ?? undefined;
     const stats = await getDifficultyStats(id, userId);
     res.json(stats);
   } catch (err) {
@@ -848,7 +849,7 @@ router.get("/math/problems/:id/showdown", async (req, res) => {
     if (!problem) { res.status(404).json({ error: "Problem not found" }); return; }
 
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    const mathUserId = (req.headers["x-math-user-id"] as string) || undefined;
+    const mathUserId = req.betterAuthSession?.user?.id ?? undefined;
     const userId = clerkUserId ?? mathUserId;
 
     const detail = await buildShowdownDetail(id, userId);
@@ -949,7 +950,7 @@ router.post("/math/problems/:id/solutions", async (req, res) => {
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
     if (!clerkUserId) { res.status(401).json({ error: "Sign in to submit solutions" }); return; }
     const userId = clerkUserId;
-    const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+    const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
 
     const { id } = paramsParsed.data;
     const { body, approach } = bodyParsed.data;
@@ -1323,7 +1324,7 @@ router.patch("/math/solutions/:id/accept", async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 router.get("/math/problem-of-week", async (req, res) => {
   try {
-    const userId = req.headers["x-math-user-id"] as string | undefined;
+    const userId = req.betterAuthSession?.user?.id ?? undefined;
     const now = new Date();
 
     const [potw] = await db
@@ -1729,67 +1730,13 @@ router.get("/math/contests", async (req, res) => {
   }
 });
 
-// POST /math/contests (admin only)
-router.post("/math/contests", async (req, res) => {
-  const { createHash } = await import("crypto");
-  const email = process.env["ADMIN_EMAIL"] ?? process.env["VITE_ADMIN_EMAIL"];
-  const password = process.env["ADMIN_PASSWORD"] ?? process.env["VITE_ADMIN_PASSWORD"];
-  const expectedToken =
-    email && password
-      ? createHash("sha256").update(`${email}:${password}`).digest("hex")
-      : null;
-  if (!expectedToken) {
-    res.status(503).json({ error: "Admin access is not configured" }); return;
-  }
-  const adminToken = req.headers["x-admin-token"];
-  if (adminToken !== expectedToken) {
-    res.status(401).json({ error: "Unauthorized" }); return;
-  }
-  try {
-    const { title, description, difficulty, startTime, endTime, prizeDescription, problemIds } = req.body;
-    if (!title || !description || !startTime || !endTime) {
-      res.status(400).json({ error: "Missing required fields" }); return;
-    }
-
-    const [contest] = await db
-      .insert(mathContestsTable)
-      .values({
-        title,
-        description,
-        difficulty: difficulty ?? "intermediate",
-        startTime: new Date(startTime),
-        endTime: new Date(endTime),
-        prizeDescription: prizeDescription ?? null,
-        isActive: true,
-        createdBy: "admin",
-      })
-      .returning();
-
-    if (Array.isArray(problemIds) && problemIds.length > 0) {
-      await db.insert(mathContestProblemsTable).values(
-        problemIds.map((pid: number, i: number) => ({
-          contestId: contest.id,
-          problemId: pid,
-          sortOrder: i,
-          points: 100,
-        })),
-      );
-    }
-
-    res.status(201).json({ ...contest, status: "upcoming" });
-  } catch (err) {
-    req.log.error({ err }, "createMathContest failed");
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
-
 // GET /math/contests/:contestId
 router.get("/math/contests/:contestId", async (req, res) => {
   try {
     const parsed = GetMathContestParams.safeParse(req.params);
     if (!parsed.success) { res.status(400).json({ error: "Invalid contestId" }); return; }
     const { contestId } = parsed.data;
-    const userId = (req.headers["x-math-user-id"] as string) || "";
+    const userId = req.betterAuthSession?.user?.id ?? "";
     const now = new Date();
 
     const [contest] = await db
@@ -1852,7 +1799,7 @@ router.post("/math/contests/:contestId/enter", async (req, res) => {
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
     if (!clerkUserId) { res.status(401).json({ error: "Sign in to enter contests" }); return; }
     const userId = clerkUserId;
-    const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+    const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
 
     // Verify contest exists and is still active
     const [contest] = await db.select().from(mathContestsTable).where(eq(mathContestsTable.id, contestId));
@@ -1929,7 +1876,7 @@ router.post("/math/annotations", async (req, res) => {
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
     if (!clerkUserId) { res.status(401).json({ error: "Sign in to annotate" }); return; }
     const userId = clerkUserId;
-    const userName = (req.headers["x-math-user-name"] as string) || "Anonymous";
+    const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
 
     const { problemId, solutionId, body, selectionStart, selectionEnd } = parsed.data;
 
@@ -2154,7 +2101,7 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
     if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
     const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    const guestUserId = req.headers["x-math-user-id"] as string | undefined;
+    const guestUserId = req.betterAuthSession?.user?.id ?? undefined;
     const viewerId = clerkUserId ?? guestUserId ?? null;
 
     const [problem] = await db.select().from(mathProblemsTable).where(eq(mathProblemsTable.id, id));
@@ -2325,7 +2272,25 @@ router.post("/math/problems/:id/elegance-battle/arguments", async (req, res) => 
       res.status(400).json({ error: "solutionId, stepIndex, and content are required" }); return;
     }
 
+    if (!Number.isInteger(stepIndex) || stepIndex < 0) { res.status(400).json({ error: "stepIndex must be a non-negative integer" }); return; }
+    const [solution] = await db.select({ id: mathSolutionsTable.id }).from(mathSolutionsTable)
+      .where(and(eq(mathSolutionsTable.id, solutionId), eq(mathSolutionsTable.problemId, id))).limit(1);
+    if (!solution) { res.status(404).json({ error: "Solution not found for this problem" }); return; }
+    const [battle] = await db.select({ endedAt: debatesTable.endedAt, winnerStatus: debatesTable.winnerStatus })
+      .from(debatesTable).where(eq(debatesTable.mathProblemId, id)).limit(1);
+    if (!battle) { res.status(404).json({ error: "Elegance battle not found" }); return; }
+    if (!battleAcceptsInteraction(battle)) { res.status(409).json({ error: "This elegance battle has ended" }); return; }
+    if (parentId !== undefined) {
+      const [parent] = await db.select({ id: mathBattleStepArgumentsTable.id }).from(mathBattleStepArgumentsTable)
+        .where(and(
+          eq(mathBattleStepArgumentsTable.id, parentId),
+          eq(mathBattleStepArgumentsTable.problemId, id),
+          eq(mathBattleStepArgumentsTable.solutionId, solutionId),
+        )).limit(1);
+      if (!parent) { res.status(404).json({ error: "Parent argument not found for this solution" }); return; }
+    }
     const user = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+    if (!user) { res.status(503).json({ error: "Could not create user profile" }); return; }
 
     const [arg] = await db
       .insert(mathBattleStepArgumentsTable)
@@ -2357,52 +2322,46 @@ router.post("/math/problems/:id/elegance-battle/arguments/:argId/vote", async (r
     const id = Number(req.params["id"]);
     const argId = Number(req.params["argId"]);
     if (!id || isNaN(id) || !argId || isNaN(argId)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-    const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkUserId) { res.status(401).json({ error: "Sign in required" }); return; }
-
+    const userId = req.betterAuthSession?.user?.id ?? null;
+    if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
     const { vote } = (req.body ?? {}) as { vote?: string };
     if (vote !== "up" && vote !== "down") { res.status(400).json({ error: "vote must be 'up' or 'down'" }); return; }
 
-    const [arg] = await db.select().from(mathBattleStepArgumentsTable).where(eq(mathBattleStepArgumentsTable.id, argId));
-    if (!arg) { res.status(404).json({ error: "Argument not found" }); return; }
-
-    const [existing] = await db
-      .select()
-      .from(mathBattleStepArgumentVotesTable)
-      .where(and(eq(mathBattleStepArgumentVotesTable.userId, clerkUserId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
-
-    let upvotesDelta = 0;
-    let downvotesDelta = 0;
-    let myVote: string | null = null;
-
-    if (!existing) {
-      // New vote
-      await db.insert(mathBattleStepArgumentVotesTable).values({ userId: clerkUserId, argumentId: argId, vote });
-      if (vote === "up") upvotesDelta = 1; else downvotesDelta = 1;
-      myVote = vote;
-    } else if (existing.vote === vote) {
-      // Same vote → remove
-      await db.delete(mathBattleStepArgumentVotesTable).where(and(eq(mathBattleStepArgumentVotesTable.userId, clerkUserId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
-      if (vote === "up") upvotesDelta = -1; else downvotesDelta = -1;
-      myVote = null;
-    } else {
-      // Switch vote
-      await db.update(mathBattleStepArgumentVotesTable).set({ vote }).where(and(eq(mathBattleStepArgumentVotesTable.userId, clerkUserId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
-      if (vote === "up") { upvotesDelta = 1; downvotesDelta = -1; } else { upvotesDelta = -1; downvotesDelta = 1; }
-      myVote = vote;
-    }
-
-    const [updated] = await db
-      .update(mathBattleStepArgumentsTable)
-      .set({
-        upvotes: sql`${mathBattleStepArgumentsTable.upvotes} + ${upvotesDelta}`,
-        downvotes: sql`${mathBattleStepArgumentsTable.downvotes} + ${downvotesDelta}`,
-      })
-      .where(eq(mathBattleStepArgumentsTable.id, argId))
-      .returning();
-
-    res.json({ upvotes: updated!.upvotes, downvotes: updated!.downvotes, myVote });
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(3, ${argId})`);
+      const [arg] = await tx.select().from(mathBattleStepArgumentsTable)
+        .where(and(eq(mathBattleStepArgumentsTable.id, argId), eq(mathBattleStepArgumentsTable.problemId, id)))
+        .limit(1);
+      if (!arg || arg.isRemoved) return { kind: "missing" as const };
+      if (arg.userId === userId) return { kind: "self" as const };
+      const [battle] = await tx.select({ endedAt: debatesTable.endedAt, winnerStatus: debatesTable.winnerStatus })
+        .from(debatesTable).where(eq(debatesTable.mathProblemId, id)).limit(1);
+      if (!battle || !battleAcceptsInteraction(battle)) return { kind: "closed" as const };
+      const [existing] = await tx.select().from(mathBattleStepArgumentVotesTable)
+        .where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)))
+        .limit(1);
+      let myVote: string | null = vote;
+      if (!existing) {
+        await tx.insert(mathBattleStepArgumentVotesTable).values({ userId, argumentId: argId, vote });
+      } else if (existing.vote === vote) {
+        await tx.delete(mathBattleStepArgumentVotesTable).where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
+        myVote = null;
+      } else {
+        await tx.update(mathBattleStepArgumentVotesTable).set({ vote }).where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
+      }
+      const counts = await tx.select({ vote: mathBattleStepArgumentVotesTable.vote, count: sql<number>`count(*)::int` })
+        .from(mathBattleStepArgumentVotesTable)
+        .where(eq(mathBattleStepArgumentVotesTable.argumentId, argId))
+        .groupBy(mathBattleStepArgumentVotesTable.vote);
+      const upvotes = counts.find((row) => row.vote === "up")?.count ?? 0;
+      const downvotes = counts.find((row) => row.vote === "down")?.count ?? 0;
+      await tx.update(mathBattleStepArgumentsTable).set({ upvotes, downvotes }).where(eq(mathBattleStepArgumentsTable.id, argId));
+      return { kind: "ok" as const, upvotes, downvotes, myVote };
+    });
+    if (result.kind === "missing") { res.status(404).json({ error: "Argument not found" }); return; }
+    if (result.kind === "self") { res.status(403).json({ error: "You cannot vote on your own argument" }); return; }
+    if (result.kind === "closed") { res.status(409).json({ error: "This elegance battle has ended" }); return; }
+    res.json({ upvotes: result.upvotes, downvotes: result.downvotes, myVote: result.myVote });
   } catch (err) {
     req.log.error({ err }, "voteEleganceBattleArgument failed");
     res.status(500).json({ error: "Internal server error" });
