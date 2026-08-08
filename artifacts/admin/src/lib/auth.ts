@@ -1,46 +1,36 @@
-const TOKEN_KEY = "treffin_admin_token";
-
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 
-export function getStoredToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function storeToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
-/** Returns true if a session token is present locally. */
-export function isAuthenticated(): boolean {
-  return !!getStoredToken();
-}
-
-/**
- * POST credentials to the server's /api/admin/login endpoint.
- * The server verifies bcrypt (or plain-password fallback) and returns
- * the session token — no credential comparison happens on the client.
- */
-export async function login(email: string, password: string): Promise<boolean> {
+export async function hasAdminSession(): Promise<boolean> {
   try {
-    const res = await fetch(`${apiOrigin}/api/admin/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) return false;
-    const { token } = await res.json() as { token: string };
-    if (!token) return false;
-    storeToken(token);
-    return true;
+    const response = await fetch(`${apiOrigin}/api/admin/session`, { credentials: "include" });
+    return response.ok;
   } catch {
     return false;
   }
 }
 
-export function logout() {
-  clearToken();
+export async function login(email: string, password: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${apiOrigin}/api/admin/login`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch(`${apiOrigin}/api/admin/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "x-admin-csrf": "1" },
+    });
+  } catch {
+    // The local UI still returns to login when the API is unavailable.
+  }
 }

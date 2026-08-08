@@ -847,6 +847,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/CommunityDetail"
 
+  /communities/{id}/transfer-ownership:
+    post:
+      operationId: transferCommunityOwnership
+      tags: [communities]
+      summary: Transfer community ownership to an approved member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommunityOwnershipTransferInput"
+      responses:
+        "200":
+          description: Ownership transferred
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, creatorId]
+                properties:
+                  ok:
+                    type: boolean
+                  creatorId:
+                    type: integer
+        "403":
+          description: Not the current owner
+        "404":
+          description: Community not found
+        "409":
+          description: Target is not an eligible member
   /communities/{id}/rules:
     patch:
       operationId: updateCommunityRules
@@ -3047,24 +3083,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/MathContest"
-    post:
-      operationId: createMathContest
-      tags: [math]
-      summary: Create a math contest (admin)
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/MathContestInput"
-      responses:
-        "201":
-          description: Created contest
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/MathContest"
-
   /math/contests/{contestId}:
     get:
       operationId: getMathContest
@@ -3915,6 +3933,12 @@ components:
         joinedAt:
           type: string
 
+    CommunityOwnershipTransferInput:
+      type: object
+      required: [userId]
+      properties:
+        userId:
+          type: integer
     CommunityRulesInput:
       type: object
       required: [rules]

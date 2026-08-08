@@ -1,12 +1,14 @@
 import { pgTable, serial, text, integer, boolean, timestamp, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
+import { communitiesTable } from "./communities";
 
 export const postsTable = pgTable("posts", {
   id: serial("id").primaryKey(),
   type: text("type").notNull().default("opinion"),
-  authorId: integer("author_id").notNull(),
-  communityId: integer("community_id"),
+  authorId: integer("author_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
+  communityId: integer("community_id").references(() => communitiesTable.id, { onDelete: "cascade" }),
   content: text("content"),
   title: text("title"),
   excerpt: text("excerpt"),

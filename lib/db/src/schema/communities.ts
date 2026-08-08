@@ -1,6 +1,7 @@
 import { pgTable, serial, text, integer, boolean, timestamp, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 export const communitiesTable = pgTable("communities", {
   id: serial("id").primaryKey(),
@@ -16,14 +17,14 @@ export const communitiesTable = pgTable("communities", {
   memberCount: integer("member_count").notNull().default(0),
   postsPerDay: integer("posts_per_day").notNull().default(0),
   totalPosts: integer("total_posts").notNull().default(0),
-  creatorId: integer("creator_id"),
+  creatorId: integer("creator_id").references(() => usersTable.id, { onDelete: "set null" }),
   rules: text("rules").array(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
 export const communityMembersTable = pgTable("community_members", {
   communityId: integer("community_id").notNull().references(() => communitiesTable.id, { onDelete: "cascade" }),
-  userId: integer("user_id").notNull(),
+  userId: integer("user_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("member"),
   status: text("status").notNull().default("member"),
   joinedAt: timestamp("joined_at").notNull().defaultNow(),

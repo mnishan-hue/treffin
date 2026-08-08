@@ -36,45 +36,56 @@ import {
 } from "@workspace/db";
 import { eq, desc, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { createNotification, notifyUser } from "../lib/notify";
-import { createHash, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { awardRep, getEliteThreshold, setEliteThreshold } from "./reputation";
 import { sendPushToAll } from "../lib/push";
-import { appSettingsTable } from "@workspace/db";
 import bcrypt from "bcryptjs";
+import { destructiveDbToolsEnabled } from "../lib/security-policy";
 
 const adminEmail    = process.env["ADMIN_EMAIL"];
 const adminPassword = process.env["ADMIN_PASSWORD"];
 const adminPwHash   = process.env["ADMIN_PASSWORD_HASH"];
 
-// Derive a deterministic session token so requireAdmin keeps its simple header-comparison flow.
-// When ADMIN_PASSWORD_HASH (bcrypt) is present we derive from that; otherwise from the plain password.
-function deriveSessionToken(seed: string): string {
-  return createHash("sha256").update(seed).digest("hex");
+const ADMIN_SESSION_COOKIE = "treffin_admin_session";
+const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const adminSessionSecret = process.env["ADMIN_SESSION_SECRET"] ?? adminPwHash ?? adminPassword ?? null;
+
+function signAdminSession(expiresAt: number, nonce: string): string {
+  if (!adminSessionSecret) throw new Error("Admin session secret is not configured");
+  const payload = `${expiresAt}.${nonce}`;
+  const signature = createHmac("sha256", adminSessionSecret).update(payload).digest("hex");
+  return `${payload}.${signature}`;
 }
 
-const ADMIN_TOKEN: string | null = (() => {
-  if (adminEmail && adminPwHash) {
-    // bcrypt mode — token derived from email + hash (both are fixed env vars)
-    return deriveSessionToken(`${adminEmail}:${adminPwHash}`);
-  }
-  if (adminEmail && adminPassword) {
-    // plain-password fallback (original behaviour)
-    return deriveSessionToken(`${adminEmail}:${adminPassword}`);
-  }
-  console.error("[admin] Neither ADMIN_PASSWORD_HASH nor ADMIN_PASSWORD is set — admin routes will return 401");
-  return null;
-})();
+function verifyAdminSession(value: unknown): boolean {
+  if (!adminSessionSecret || typeof value !== "string") return false;
+  const [expiresRaw, nonce, signature, ...extra] = value.split(".");
+  if (extra.length || !expiresRaw || !nonce || !signature) return false;
+  const expiresAt = Number(expiresRaw);
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) return false;
+  const expected = createHmac("sha256", adminSessionSecret).update(`${expiresAt}.${nonce}`).digest("hex");
+  const actualBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && timingSafeEqual(actualBuffer, expectedBuffer);
+}
+
+function adminCookieOptions() {
+  const secure = process.env.NODE_ENV === "production";
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: (secure ? "none" : "lax") as "none" | "lax",
+    path: "/api/admin",
+    maxAge: ADMIN_SESSION_TTL_MS,
+  };
+}
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
-  if (!ADMIN_TOKEN) {
+  if (!verifyAdminSession(req.cookies?.[ADMIN_SESSION_COOKIE])) {
     res.status(401).json({ error: "Unauthorized" }); return;
   }
-  const token = req.headers["x-admin-token"];
-  if (typeof token !== "string" || token.length !== ADMIN_TOKEN.length) {
-    res.status(401).json({ error: "Unauthorized" }); return;
-  }
-  if (!timingSafeEqual(Buffer.from(token), Buffer.from(ADMIN_TOKEN))) {
-    res.status(401).json({ error: "Unauthorized" }); return;
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && req.headers["x-admin-csrf"] !== "1") {
+    res.status(403).json({ error: "Missing admin CSRF header" }); return;
   }
   next();
 }
@@ -116,11 +127,23 @@ router.post("/admin/login", async (req, res) => {
       res.status(401).json({ error: "Unauthorized" }); return;
     }
 
-    res.json({ token: ADMIN_TOKEN });
+    const expiresAt = Date.now() + ADMIN_SESSION_TTL_MS;
+    const session = signAdminSession(expiresAt, randomBytes(24).toString("hex"));
+    res.cookie(ADMIN_SESSION_COOKIE, session, adminCookieOptions());
+    res.json({ ok: true, expiresAt: new Date(expiresAt).toISOString() });
   } catch (err) {
     req.log?.error({ err }, "[admin/login] Unexpected error");
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+router.get("/admin/session", requireAdmin, (_req, res) => {
+  res.json({ authenticated: true });
+});
+
+router.post("/admin/logout", requireAdmin, (_req, res) => {
+  res.clearCookie(ADMIN_SESSION_COOKIE, { ...adminCookieOptions(), maxAge: undefined });
+  res.json({ ok: true });
 });
 
 router.use("/admin", requireAdmin);
@@ -2035,6 +2058,14 @@ function runSeedScript(): Promise<string> {
   return runCommand("pnpm --filter @workspace/scripts run seed", 120_000);
 }
 
+function requireDevelopmentDbTools(_req: Request, res: Response, next: NextFunction) {
+  if (!destructiveDbToolsEnabled(process.env.NODE_ENV)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  next();
+}
+
 router.get("/admin/db/counts", async (req, res) => {
   try {
     const [users] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable);
@@ -2058,7 +2089,7 @@ router.get("/admin/db/counts", async (req, res) => {
 });
 
 /** Standalone schema push — creates missing tables without touching data. */
-router.post("/admin/db/push-schema", requireAdmin, async (req, res) => {
+router.post("/admin/db/push-schema", requireDevelopmentDbTools, async (req, res) => {
   try {
     const out = await runSchemaPush();
     res.json({ ok: true, output: out });
@@ -2068,7 +2099,7 @@ router.post("/admin/db/push-schema", requireAdmin, async (req, res) => {
   }
 });
 
-router.post("/admin/db/seed", async (req, res) => {
+router.post("/admin/db/seed", requireDevelopmentDbTools, async (req, res) => {
   try {
     const schemaOut = await runSchemaPush();
     const stdout = await runSeedScript();
@@ -2079,7 +2110,7 @@ router.post("/admin/db/seed", async (req, res) => {
   }
 });
 
-router.post("/admin/db/reset-and-seed", async (req, res) => {
+router.post("/admin/db/reset-and-seed", requireDevelopmentDbTools, async (req, res) => {
   try {
     // Audit log BEFORE the reset (tables will be truncated, so log first)
     await db.insert(modAuditLogTable).values({
@@ -2309,6 +2340,7 @@ router.put("/admin/settings/elite-threshold", async (req, res) => {
     await db.insert(modAuditLogTable).values({
       action: "update_elite_threshold",
       targetType: "setting",
+      targetId: 0,
       reason: `Elite Thinker threshold changed ${oldThreshold.toLocaleString()} → ${threshold.toLocaleString()} rep`,
     });
 
@@ -2316,14 +2348,14 @@ router.put("/admin/settings/elite-threshold", async (req, res) => {
     const title = "🏆 Elite Thinker Threshold Updated";
     const body = `The Elite Thinker reputation threshold is now ${threshold.toLocaleString()} rep. Keep contributing to reach the top!`;
 
-    const allUsers = await db.select({ id: usersTable.id }).from(usersTable);
+    const allUsers = (await db.select({ betterAuthId: usersTable.betterAuthId }).from(usersTable)).filter((u): u is { betterAuthId: string } => !!u.betterAuthId);
     if (allUsers.length > 0) {
       // Insert in chunks of 500 to avoid hitting Postgres parameter limits
       const CHUNK = 500;
       for (let i = 0; i < allUsers.length; i += CHUNK) {
         await db.insert(notificationsTable).values(
           allUsers.slice(i, i + CHUNK).map((u) => ({
-            userId: u.id,
+            userId: u.betterAuthId,
             type: "system_announcement",
             title,
             body,

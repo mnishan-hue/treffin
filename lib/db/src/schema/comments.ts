@@ -1,14 +1,18 @@
 import { pgTable, serial, text, integer, boolean, timestamp, pgEnum, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { articlesTable } from "./articles";
+import { debatesTable } from "./debates";
+import { usersTable } from "./users";
 
 export const flagLabelEnum = pgEnum("flag_label", ["strong", "fair"]);
 
 export const commentsTable = pgTable("comments", {
   id: serial("id").primaryKey(),
   postId: integer("post_id"),
-  debateId: integer("debate_id"),
-  authorId: integer("author_id").notNull(),
+  articleId: integer("article_id").references(() => articlesTable.id, { onDelete: "cascade" }),
+  debateId: integer("debate_id").references(() => debatesTable.id, { onDelete: "cascade" }),
+  authorId: integer("author_id").notNull().references(() => usersTable.id, { onDelete: "cascade" }),
   authorName: text("author_name").notNull(),
   content: text("content").notNull(),
   side: text("side"),
@@ -32,6 +36,7 @@ export const commentsTable = pgTable("comments", {
   likes: integer("likes").notNull().default(0),
 }, (t) => [
   index("comments_post_id_idx").on(t.postId),
+  index("comments_article_id_idx").on(t.articleId),
   index("comments_debate_id_idx").on(t.debateId),
   index("comments_author_id_idx").on(t.authorId),
 ]);

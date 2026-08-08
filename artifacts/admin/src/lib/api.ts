@@ -1,5 +1,3 @@
-import { getStoredToken, clearToken } from "./auth";
-
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 export const API_BASE = `${apiOrigin}/api`;
 
@@ -10,19 +8,18 @@ async function request<T>(
   path: string,
   body?: unknown
 ): Promise<T> {
-  const token = getStoredToken() ?? "";
   const res = await fetch(`${BASE}${path}`, {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      "x-admin-token": token,
+      ...(method === "GET" ? {} : { "x-admin-csrf": "1" }),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
     // Token is missing or no longer valid — clear it and force re-login
-    clearToken();
-    window.location.reload();
+    window.dispatchEvent(new Event("admin-session-expired"));
     throw new Error("Session expired. Please log in again.");
   }
   if (!res.ok) {

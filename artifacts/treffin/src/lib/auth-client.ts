@@ -39,6 +39,7 @@ function toAuthUser(user: {
 
   return {
     ...user,
+    name,
     firstName,
     lastName,
     username: name,

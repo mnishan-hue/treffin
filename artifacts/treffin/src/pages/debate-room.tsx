@@ -1696,7 +1696,7 @@ export default function DebateRoom() {
                 </div>
                 {/* Top argument cards */}
                 {(topSupportArg || topAgainstArg) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-white/5">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-white/5">
                     <div className="flex flex-col gap-2 p-4 bg-indigo-950/30">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-400">
                         <Star className="w-3 h-3 fill-current" /> Top Support Argument
@@ -1857,7 +1857,7 @@ export default function DebateRoom() {
             )}
 
             {/* Arguments */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
                 <h3 className="text-sm font-bold text-indigo-400 flex items-center gap-2">
                   <ThumbsUp className="w-4 h-4" /> Supporting Arguments

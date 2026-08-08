@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
@@ -9,6 +10,7 @@ import { logger } from "./lib/logger";
 import { auth, betterAuthHandler } from "./lib/better-auth";
 import { fromNodeHeaders } from "better-auth/node";
 import router from "./routes";
+import { normalizeOrigin, resolveTrustedFrontendUrl as resolveTrustedUrl } from "./lib/security-policy";
 
 const app: Express = express();
 
@@ -17,6 +19,12 @@ app.set("trust proxy", 1);
 app.use(
   pinoHttp({
     logger,
+    genReqId(req, res) {
+      const supplied = req.headers["x-request-id"];
+      const requestId = typeof supplied === "string" && /^[A-Za-z0-9._:-]{1,100}$/.test(supplied) ? supplied : crypto.randomUUID();
+      res.setHeader("x-request-id", requestId);
+      return requestId;
+    },
     serializers: {
       req(req) {
         return {
@@ -46,27 +54,17 @@ const allowedOrigins = corsDomains
   .filter(Boolean)
   .map((d) => (d.startsWith("http") ? d : `https://${d}`));
 
-// Extract the apex domain (e.g. "thetreffin.com") from a full origin URL.
-// Allows admin.thetreffin.com when thetreffin.com is in the allow-list.
-function apexDomain(urlStr: string): string {
-  try {
-    const parts = new URL(urlStr).hostname.split(".");
-    return parts.slice(-2).join(".");
-  } catch {
-    return "";
-  }
+if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
+  throw new Error('ALLOWED_ORIGINS must be configured in production');
 }
-const allowedApexDomains = new Set(allowedOrigins.map(apexDomain).filter(Boolean));
-
+const trustedOriginSet = new Set(allowedOrigins.map(normalizeOrigin).filter((value): value is string => !!value));
 app.use(
   cors({
     credentials: true,
     allowedHeaders: [
       "Content-Type",
       "Authorization",
-      "x-admin-token",
-      "x-math-user-id",
-      "x-math-user-name",
+      "x-admin-csrf",
     ],
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
@@ -74,9 +72,7 @@ app.use(
       // Set ALLOWED_ORIGINS on the server (comma-separated) to restrict access
       // in production (e.g. "https://thetreffin.com,https://admin.thetreffin.com").
       if (!allowedOrigins.length) return cb(null, true);
-      // Exact match OR any subdomain of an allowed apex domain.
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (allowedApexDomains.has(apexDomain(origin))) return cb(null, true);
+      if (trustedOriginSet.has(normalizeOrigin(origin) ?? "")) return cb(null, true);
       return cb(null, false);
     },
   }),
@@ -97,10 +93,7 @@ app.use(
 // is present first-party → state validates → OAuth succeeds.
 app.get("/api/auth/signin/social", async (req, res) => {
   const provider = (req.query.provider as string) || "google";
-  const callbackURL =
-    (req.query.callbackURL as string) ||
-    process.env.FRONTEND_URL ||
-    "https://thetreffin.com";
+  const callbackURL = resolveTrustedUrl(req.query.callbackURL, process.env.FRONTEND_URL ?? allowedOrigins[0] ?? "http://localhost:3000", allowedOrigins);
 
   try {
     // auth.api.signInSocial is the typed server-side API — avoids synthetic

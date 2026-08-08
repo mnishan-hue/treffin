@@ -6,6 +6,7 @@ import { eq, desc, inArray, and, sql } from "drizzle-orm";
 import { createNotification } from "../lib/notify";
 import { checkToxicity, detectAiContent } from "../lib/content-moderation";
 import { awardRep } from "./reputation";
+import { debateAcceptsParticipation, isDebateSide, isDebateWinnerSide } from "../lib/security-policy";
 
 const router = Router();
 
@@ -285,7 +286,7 @@ router.post("/debates", async (req, res) => {
         title,
         description,
         category,
-        isLive: false,
+        isLive: true,
         creatorUserId: creatorUserId ?? null,
         creatorIsModerator: !!creatorIsModerator,
         winnerAuthority: winnerAuthority === "admin" ? "admin" : "creator",
@@ -373,12 +374,13 @@ router.post("/debates/:id/declare-winner", async (req, res) => {
     if (debate.creatorUserId !== userId) {
       res.status(403).json({ error: "Only this debate's creator can declare a winner" }); return;
     }
+    if (debateAcceptsParticipation(debate)) { res.status(409).json({ error: "End the debate before declaring a winner" }); return; }
     if (debate.winnerAuthority === "admin") {
       res.status(403).json({ error: "You've delegated winner decisions for this debate to the admin team" }); return;
     }
 
     const { winningSide, justification } = req.body as { winningSide: "support" | "against" | "draw"; justification: string };
-    if (!winningSide || !justification?.trim()) {
+    if (!isDebateWinnerSide(winningSide) || !justification?.trim()) {
       res.status(400).json({ error: "winningSide and justification are required" }); return;
     }
 
@@ -565,7 +567,8 @@ router.post("/debates/:id/vote", async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid debate id" }); return; }
-    const { vote, annotation } = req.body as { vote: string; annotation?: string };
+    const { vote, annotation } = req.body as { vote: unknown; annotation?: string };
+    if (!isDebateSide(vote)) { res.status(400).json({ error: "vote must be support or against" }); return; }
 
     const [debate] = await db
       .select()
@@ -577,60 +580,56 @@ router.post("/debates/:id/vote", async (req, res) => {
       res.status(404).json({ error: "Debate not found" }); return;
     }
 
+    if (!debateAcceptsParticipation(debate)) { res.status(409).json({ error: "This debate is no longer accepting votes" }); return; }
+
     if (isBlockedModeratorParticipant(debate, actorClerkId)) {
       res.status(403).json({ error: "As the moderator of this debate, you can't vote in it — that's the trade-off for holding moderation powers here." }); return;
     }
 
-    const [existingVote] = await db
-      .select({ side: debateParticipantVotesTable.side })
-      .from(debateParticipantVotesTable)
-      .where(
-        and(
-          eq(debateParticipantVotesTable.debateId, id),
-          eq(debateParticipantVotesTable.userId, actorClerkId)
-        )
-      )
-      .limit(1);
-
-    const isNewParticipant = !existingVote;
-    const newSide = vote === "support" ? "support" : "against";
-
     const annotationText = (annotation ?? "").trim() || null;
-    await db
-      .insert(debateParticipantVotesTable)
-      .values({ debateId: id, userId: actorClerkId, side: newSide, annotation: annotationText })
-      .onConflictDoUpdate({
-        target: [debateParticipantVotesTable.debateId, debateParticipantVotesTable.userId],
-        set: { side: newSide, ...(annotationText ? { annotation: annotationText } : {}) },
-      });
-
-    const allVotes = await db
-      .select({ side: debateParticipantVotesTable.side })
-      .from(debateParticipantVotesTable)
-      .where(eq(debateParticipantVotesTable.debateId, id));
-
-    const supportCount = allVotes.filter(v => v.side === "support").length;
-    const againstCount = allVotes.filter(v => v.side === "against").length;
-    const total = allVotes.length || 1;
-    const support = Math.round((supportCount / total) * 100);
-    const against = 100 - support;
-
-    const [updated] = await db
-      .update(debatesTable)
-      .set({ supportPercent: support, againstPercent: against, participantCount: total })
-      .where(eq(debatesTable.id, id))
-      .returning();
-
-    const today = new Date().toISOString().slice(0, 10);
-    if (isNewParticipant) {
-      await db
-        .insert(debateDailyVotesTable)
-        .values({ debateId: id, date: today, voteCount: 1 })
+    const { updated, isNewParticipant } = await db.transaction(async (tx) => {
+      // Serialize aggregate updates per debate without locking unrelated debates.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${id})`);
+      const [existingVote] = await tx
+        .select({ side: debateParticipantVotesTable.side })
+        .from(debateParticipantVotesTable)
+        .where(and(
+          eq(debateParticipantVotesTable.debateId, id),
+          eq(debateParticipantVotesTable.userId, actorClerkId),
+        ))
+        .limit(1);
+      const isNewParticipant = !existingVote;
+      await tx
+        .insert(debateParticipantVotesTable)
+        .values({ debateId: id, userId: actorClerkId, side: vote, annotation: annotationText })
         .onConflictDoUpdate({
-          target: [debateDailyVotesTable.debateId, debateDailyVotesTable.date],
-          set: { voteCount: sql`${debateDailyVotesTable.voteCount} + 1` },
+          target: [debateParticipantVotesTable.debateId, debateParticipantVotesTable.userId],
+          set: { side: vote, annotation: annotationText },
         });
-    }
+      const allVotes = await tx
+        .select({ side: debateParticipantVotesTable.side })
+        .from(debateParticipantVotesTable)
+        .where(eq(debateParticipantVotesTable.debateId, id));
+      const supportCount = allVotes.filter((entry) => entry.side === "support").length;
+      const participantCount = allVotes.length;
+      const support = participantCount === 0 ? 50 : Math.round((supportCount / participantCount) * 100);
+      const [updated] = await tx
+        .update(debatesTable)
+        .set({ supportPercent: support, againstPercent: 100 - support, participantCount })
+        .where(eq(debatesTable.id, id))
+        .returning();
+      if (isNewParticipant) {
+        const today = new Date().toISOString().slice(0, 10);
+        await tx
+          .insert(debateDailyVotesTable)
+          .values({ debateId: id, date: today, voteCount: 1 })
+          .onConflictDoUpdate({
+            target: [debateDailyVotesTable.debateId, debateDailyVotesTable.date],
+            set: { voteCount: sql`${debateDailyVotesTable.voteCount} + 1` },
+          });
+      }
+      return { updated, isNewParticipant };
+    });
 
     if (isNewParticipant) {
       try {
@@ -792,9 +791,10 @@ router.post("/debates/:id/comments", async (req, res) => {
       res.status(400).json({ error: "Invalid debate id" }); return;
     }
 
-    const { authorId, authorName, content, side, sources, argType, parentCommentId } = req.body as {
-      authorId?: number;
-      authorName: string;
+    const actorClerkId = req.betterAuthSession?.user?.id ?? null;
+    if (!actorClerkId) { res.status(401).json({ error: "Sign in to participate" }); return; }
+
+    const { content, side, sources, argType, parentCommentId } = req.body as {
       content: string;
       side?: string;
       sources?: string;
@@ -802,8 +802,8 @@ router.post("/debates/:id/comments", async (req, res) => {
       parentCommentId?: number;
     };
 
-    if (!authorName || !content) {
-      res.status(400).json({ error: "authorName and content are required" }); return;
+    if (!content?.trim()) {
+      res.status(400).json({ error: "content is required" }); return;
     }
 
     const isReply = !!parentCommentId;
@@ -823,6 +823,10 @@ router.post("/debates/:id/comments", async (req, res) => {
     if (!debate) {
       res.status(404).json({ error: "Debate not found" }); return;
     }
+
+    if (!debateAcceptsParticipation(debate)) { res.status(409).json({ error: "This debate is no longer accepting arguments" }); return; }
+
+    if (!isReply && !isDebateSide(side)) { res.status(400).json({ error: "side must be support or against" }); return; }
 
     // Word limit — enforced per debate (set by creator at creation time, replies are exempt)
     if (!isReply && debate.wordLimit && wordCount > debate.wordLimit) {
@@ -855,7 +859,6 @@ router.post("/debates/:id/comments", async (req, res) => {
     }
 
     // Self-promotion detection
-    const actorClerkId = req.betterAuthSession?.user?.id ?? null;
     const isSelfPromo = actorClerkId ? detectSelfPromotion(content, actorClerkId) : false;
     if (isSelfPromo) {
       res.status(400).json({ error: "Posting links to your own articles in debate arguments is not allowed." }); return;
@@ -878,24 +881,21 @@ router.post("/debates/:id/comments", async (req, res) => {
     // Personal attack check (non-blocking warning)
     const personalAttackWarning = detectPersonalAttack(content);
 
-    // Resolve the author's DB record from their Clerk ID so authorId is always correct
-    let resolvedAuthorId = authorId ?? 0;
-    let resolvedAuthorName = authorName;
-    if (actorClerkId) {
-      let [dbUser] = await db
-        .select({ id: usersTable.id, name: usersTable.name })
-        .from(usersTable)
-        .where(eq(usersTable.betterAuthId, actorClerkId))
-        .limit(1);
-      if (!dbUser) {
-        const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
-        if (provisioned) dbUser = { id: provisioned.id, name: provisioned.name };
-      }
-      if (dbUser) {
-        resolvedAuthorId = dbUser.id;
-        resolvedAuthorName = dbUser.name ?? authorName;
-      }
+    // Resolve identity exclusively from the authenticated session.
+    let [dbUser] = await db
+      .select({ id: usersTable.id, name: usersTable.name })
+      .from(usersTable)
+      .where(eq(usersTable.betterAuthId, actorClerkId))
+      .limit(1);
+    if (!dbUser) {
+      const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+      if (provisioned) dbUser = { id: provisioned.id, name: provisioned.name };
     }
+    if (!dbUser) {
+      res.status(503).json({ error: "Could not create user profile. Please try again." }); return;
+    }
+    const resolvedAuthorId = dbUser.id;
+    const resolvedAuthorName = dbUser.name ?? req.betterAuthSession?.user?.name ?? "Member";
 
     // For replies, look up the parent's side so the reply lives in the same column
     let resolvedSide = side ?? null;
@@ -903,7 +903,7 @@ router.post("/debates/:id/comments", async (req, res) => {
       const [parent] = await db
         .select({ side: commentsTable.side, repliesLocked: commentsTable.repliesLocked })
         .from(commentsTable)
-        .where(eq(commentsTable.id, parentCommentId!))
+        .where(and(eq(commentsTable.id, parentCommentId!), eq(commentsTable.debateId, debateId)))
         .limit(1);
       if (!parent) {
         res.status(404).json({ error: "Parent comment not found" }); return;

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SectionInfo } from "@/components/section-info";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/app-layout";
@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { Heart, MessageCircle, UserPlus, Swords, Trophy, Bell, Check, Settings, Star, Zap, MapPin, Shield, ShieldAlert, ShieldCheck, AlertTriangle, Gavel, Award } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "@/lib/auth-client";
+import { getApiUrl } from "@/lib/api-url";
 import {
   useMarkAllNotificationsRead,
   useMarkNotificationRead,
@@ -138,6 +139,15 @@ export default function Notifications() {
   const { data: notifs = [], isLoading } = useQuery({ ...getGetNotificationsQueryOptions(), refetchInterval: 30_000, enabled: !!isSignedIn });
   const unread = notifs.filter((n) => !n.read).length;
   const [showPrefs, setShowPrefs] = useState(false);
+
+  useEffect(() => {
+    if (!isSignedIn || typeof EventSource === "undefined") return;
+    const stream = new EventSource(getApiUrl("/api/notifications/stream"), { withCredentials: true });
+    stream.onmessage = () => {
+      void queryClient.invalidateQueries({ queryKey: getGetNotificationsQueryKey() });
+    };
+    return () => stream.close();
+  }, [isSignedIn, queryClient]);
 
   const markAllMutation = useMarkAllNotificationsRead({
     mutation: {
