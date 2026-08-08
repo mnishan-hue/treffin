@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useSession, authClient } from "@/lib/auth-client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -244,6 +244,17 @@ function DebateHistoryCard({ entry }: { entry: DebateHistoryEntry }) {
   );
 }
 
+type DebateHistoryEntry = {
+  id: number;
+  debateId: number;
+  debateTitle: string;
+  category: string;
+  side: "support" | "against";
+  supportPercent: number;
+  againstPercent: number;
+  participantCount?: number | null;
+  joinedAt: string | Date;
+};
 type DebateSideFilter = "all" | "support" | "against";
 
 function DebateHistoryList({ entries, isLoading, isOwner }: { entries: DebateHistoryEntry[]; isLoading: boolean; isOwner: boolean }) {
@@ -346,7 +357,7 @@ function PublicProfile({ userId }: { userId: number }) {
   const level = getLevel(user.reputationScore);
   const nextLevel = LEVELS[LEVELS.indexOf(level) + 1];
   const levelPct = nextLevel ? Math.round(((user.reputationScore - level.min) / (nextLevel.min - level.min)) * 100) : 100;
-  const posts = feedData?.filter(p => p.type !== "article" && p.type !== "debate_room" && p.type !== "debate").slice(0, 4) ?? [];
+  const posts = feedData?.filter(p => p.type !== "article").slice(0, 4) ?? [];
   const userArticles = (articleFeed ?? []).slice(0, 4) as any[];
 
   return (
@@ -518,18 +529,25 @@ function OwnProfile() {
   }
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
-  const [savedName, setSavedName] = useState(() => localStorage.getItem("treffin_name") ?? "");
+  const [savedName, setSavedName] = useState("");
   const [editingBio, setEditingBio] = useState(false);
-  const [bio, setBio] = useState(() => localStorage.getItem("treffin_bio") ?? "");
+  const [bio, setBio] = useState("");
   const [editingInterests, setEditingInterests] = useState(false);
-  const [draftInterests, setDraftInterests] = useState<Set<string>>(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem("treffin_interests") ?? "[]");
-      return new Set(Array.isArray(stored) ? stored : []);
-    } catch { return new Set(["ai", "philosophy", "technology"]); }
-  });
+  const [draftInterests, setDraftInterests] = useState<Set<string>>(new Set());
+  const [profileHydrated, setProfileHydrated] = useState(false);
 
-  const { data: currentUser } = useGetCurrentUser();
+  const { data: currentUser, refetch: refetchCurrentUser } = useGetCurrentUser();
+
+  useEffect(() => {
+    if (!currentUser || profileHydrated) return;
+    setSavedName(currentUser.name ?? "");
+    setBio(currentUser.bio ?? "");
+    const ids = (currentUser.interests ?? []).map((interest) =>
+      ALL_INTERESTS.find(([, label]) => label === interest)?.[0] ?? interest,
+    );
+    setDraftInterests(new Set(ids));
+    setProfileHydrated(true);
+  }, [currentUser, profileHydrated]);
   const myDbId = currentUser?.id;
   const { isInstalled, platform, canAutoInstall, install } = useInstallPWA();
   const [showIosHint, setShowIosHint] = useState(false);
@@ -567,41 +585,74 @@ function OwnProfile() {
 
   const interests = Array.from(draftInterests).map(id => INTEREST_MAP[id] ?? id);
 
+  const updateProfile = async (data: { name?: string; bio?: string }) => {
+    const response = await fetch(getApiUrl("/api/users/me"), {
+      method: "PUT",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      throw new Error(body?.error ?? "Profile update failed");
+    }
+  };
+
   const saveName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) return;
     try {
-      await fetch(getApiUrl("/api/users/me"), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
+      await updateProfile({ name: trimmed });
       setSavedName(trimmed);
-      localStorage.setItem("treffin_name", trimmed);
+      await refetchCurrentUser();
+      setEditingName(false);
       toast({ title: "Name updated!" });
-    } catch {
-      toast({ title: "Failed to save name", variant: "destructive" });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Failed to save name", variant: "destructive" });
     }
-    setEditingName(false);
   };
 
-  const saveBio = () => {
-    localStorage.setItem("treffin_bio", bio);
-    setEditingBio(false);
-    toast({ title: "Bio saved!" });
+  const saveBio = async () => {
+    try {
+      await updateProfile({ bio });
+      await refetchCurrentUser();
+      setEditingBio(false);
+      toast({ title: "Bio saved!" });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Failed to save bio", variant: "destructive" });
+    }
   };
 
-  const saveInterests = () => {
-    localStorage.setItem("treffin_interests", JSON.stringify(Array.from(draftInterests)));
-    setEditingInterests(false);
-    toast({ title: "Interests updated!" });
+  const saveInterests = async () => {
+    const selected = Array.from(draftInterests).map((id) => INTEREST_MAP[id] ?? id);
+    if (selected.length < 3) {
+      toast({ title: "Choose at least three interests", variant: "destructive" });
+      return;
+    }
+    try {
+      const response = await fetch(getApiUrl("/api/users/me/interests"), {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interests: selected }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error ?? "Interest update failed");
+      }
+      await refetchCurrentUser();
+      setEditingInterests(false);
+      toast({ title: "Interests updated!" });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Failed to save interests", variant: "destructive" });
+    }
   };
 
   const toggleDraftInterest = (id: string) => {
     setDraftInterests(p => { const s = new Set(p); if (s.has(id)) s.delete(id); else s.add(id); return s; });
   };
 
-  const myPosts = (feed ?? []).filter(p => p.type !== "article" && p.type !== "debate_room" && p.type !== "debate").slice(0, 5);
+  const myPosts = (feed ?? []).filter(p => p.type !== "article").slice(0, 5);
   const myArticles = (myArticleFeed ?? []).slice(0, 5) as any[];
 
   const STATS = {
@@ -918,7 +969,7 @@ function OwnProfile() {
               <button
                 className="self-start text-xs font-semibold bg-primary text-white px-4 py-1.5 rounded-full"
                 onClick={saveInterests}
-                disabled={draftInterests.size < 1}
+                disabled={draftInterests.size < 3}
                 data-testid="button-save-interests"
               >
                 Save interests

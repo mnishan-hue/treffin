@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   useGetMathLeaderboard,
   useGetMathStats, getGetMathStatsQueryKey,
-  useGetMathUserProfile,
+  useGetMathUserProfile, getGetMathUserProfileQueryKey,
 } from "@workspace/api-client-react";
 import { getMathUserId } from "@/lib/math-auth";
 
@@ -60,7 +60,7 @@ export function MathSidebar() {
 
   // Fetch real streak from the server (updated when user solves problems / views the hub)
   const { data: userProfile } = useGetMathUserProfile(userId ?? "", {
-    query: { enabled: !!userId },
+    query: { enabled: !!userId, queryKey: getGetMathUserProfileQueryKey(userId ?? "") },
   });
   const streakCount = userProfile?.streak ?? 0;
 

@@ -396,7 +396,7 @@ router.get("/users/:id/positions", async (req, res) => {
   }
 });
 
-const ALL_INTEREST_DOMAINS = ["Philosophy", "Science", "History", "Economics", "Law", "Logic", "Psychology", "Politics"] as const;
+const ALL_INTEREST_DOMAINS = ["Artificial Intelligence", "Philosophy", "Politics", "Science", "Economics", "Technology", "Psychology", "Culture", "History", "Ethics", "Law", "Logic"] as const;
 
 router.patch("/users/me/interests", async (req, res) => {
   const userId = req.betterAuthSession?.user?.id ?? null;

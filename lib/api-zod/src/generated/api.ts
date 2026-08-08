@@ -3319,36 +3319,6 @@ export const ListMathContestsResponse = zod.array(ListMathContestsResponseItem)
 
 
 /**
- * @summary Create a math contest (admin)
- */
-export const createMathContestBodyDifficultyDefault = `intermediate`;
-
-export const CreateMathContestBody = zod.object({
-  "title": zod.string(),
-  "description": zod.string(),
-  "difficulty": zod.enum(['beginner', 'intermediate', 'advanced', 'olympiad']).default(createMathContestBodyDifficultyDefault),
-  "startTime": zod.string(),
-  "endTime": zod.string(),
-  "prizeDescription": zod.string().optional(),
-  "problemIds": zod.array(zod.number()).optional()
-})
-
-export const CreateMathContestResponse = zod.object({
-  "id": zod.number(),
-  "title": zod.string(),
-  "description": zod.string(),
-  "difficulty": zod.string(),
-  "startTime": zod.string(),
-  "endTime": zod.string(),
-  "isActive": zod.boolean(),
-  "prizeDescription": zod.string().nullish(),
-  "totalParticipants": zod.number(),
-  "createdAt": zod.string(),
-  "status": zod.enum(['upcoming', 'active', 'past']).optional()
-})
-
-
-/**
  * @summary Get math contest detail with problems and leaderboard
  */
 export const GetMathContestParams = zod.object({

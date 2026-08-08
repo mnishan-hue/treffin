@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
-import { isAuthenticated, logout } from "@/lib/auth";
+import { hasAdminSession, logout } from "@/lib/auth";
 import { api } from "@/lib/api";
 import Login from "@/pages/login";
 import Sidebar, { type Section, type UrgentCounts } from "@/components/layout/sidebar";
@@ -94,9 +94,9 @@ function AdminShell() {
     };
   }, []);
 
-  const handleLogout = () => {
-    logout();
-    window.location.reload();
+  const handleLogout = async () => {
+    await logout();
+    window.dispatchEvent(new Event("admin-session-expired"));
   };
 
   const handleSelect = (s: Section) => {
@@ -183,7 +183,22 @@ function AdminShell() {
 }
 
 export default function App() {
-  const [authed, setAuthed] = useState<boolean>(() => isAuthenticated());
+  const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void hasAdminSession().then((valid) => { if (active) setAuthed(valid); });
+    const expire = () => setAuthed(false);
+    window.addEventListener("admin-session-expired", expire);
+    return () => {
+      active = false;
+      window.removeEventListener("admin-session-expired", expire);
+    };
+  }, []);
+
+  if (authed === null) {
+    return <div className="min-h-screen bg-background" aria-label="Checking admin session" />;
+  }
 
   if (!authed) {
     return (

@@ -320,3 +320,13 @@
     box-shadow: 0 0 0 1px rgba(79, 106, 247, 0.15), 0 4px 24px rgba(0,0,0,0.4);
   }
 }
+
+/* Mobile resilience for user-generated long-form and mathematical content. */
+@media (max-width: 639px) {
+  button, a, input, select, textarea { touch-action: manipulation; }
+  pre, code, .katex-display { max-width: 100%; overflow-x: auto; }
+  [role="dialog"] { max-height: calc(100dvh - 1rem); overflow-y: auto; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

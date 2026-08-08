@@ -9,7 +9,10 @@
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "audit:staging": "node ./scripts/audit-integrity.mjs",
+    "validate:migration": "node ./scripts/validate-migration.mjs",
+    "migrate:staging": "node ./scripts/apply-staging-migration.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",
