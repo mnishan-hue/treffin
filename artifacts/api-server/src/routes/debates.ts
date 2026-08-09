@@ -759,17 +759,23 @@ router.get("/debates/:id/comments", async (req, res) => {
     const reactionsMap = new Map<number, ReactionTotals>();
     if (comments.length > 0) {
       const commentIds = comments.map((c) => c.id);
-      const allReactions = await db
-        .select()
-        .from(commentReactionsTable)
-        .where(inArray(commentReactionsTable.commentId, commentIds));
-      for (const r of allReactions) {
-        const entry = reactionsMap.get(r.commentId) ?? { fire: 0, think: 0, bulb: 0, myReaction: null };
-        if (r.reaction === "fire") entry.fire++;
-        else if (r.reaction === "think") entry.think++;
-        else if (r.reaction === "bulb") entry.bulb++;
-        if (userId && r.userId === userId) entry.myReaction = r.reaction;
-        reactionsMap.set(r.commentId, entry);
+      try {
+        const allReactions = await db
+          .select()
+          .from(commentReactionsTable)
+          .where(inArray(commentReactionsTable.commentId, commentIds));
+        for (const r of allReactions) {
+          const entry = reactionsMap.get(r.commentId) ?? { fire: 0, think: 0, bulb: 0, myReaction: null };
+          if (r.reaction === "fire") entry.fire++;
+          else if (r.reaction === "think") entry.think++;
+          else if (r.reaction === "bulb") entry.bulb++;
+          if (userId && r.userId === userId) entry.myReaction = r.reaction;
+          reactionsMap.set(r.commentId, entry);
+        }
+      } catch (err) {
+        // Reactions are supplementary. A partially migrated deployment must
+        // still return the debate discussion instead of failing the page.
+        req.log.warn({ err, debateId: id }, "Comment reactions unavailable");
       }
     }
 

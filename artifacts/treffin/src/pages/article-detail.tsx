@@ -73,6 +73,7 @@ export default function ArticleDetail() {
   const { data: article, isLoading } = useGetArticle(articleId, {
     query: { enabled: !!articleId, queryKey: getGetArticleQueryKey(articleId) },
   });
+  const isArticleAuthor = !!currentUserProfile && !!article && currentUserProfile.id === article.authorId;
 
   const { data: annotations = [] } = useGetArticleAnnotations(articleId, {
     query: { enabled: !!articleId, queryKey: getGetArticleAnnotationsQueryKey(articleId) },
@@ -85,11 +86,11 @@ export default function ArticleDetail() {
         toast({ title: "Submitted for peer review!", description: "Community experts will review this article within 48 hours." });
       },
       onError: (err: unknown) => {
-        const status = (err as { response?: { status?: number } })?.response?.status;
-        if (status === 409) {
+        const apiError = err as { status?: number; data?: { error?: string } };
+        if (apiError.status === 409) {
           toast({ title: "Already submitted", description: "This article has already been submitted for review." });
         } else {
-          toast({ title: "Failed to submit", description: "Please try again.", variant: "destructive" });
+          toast({ title: "Failed to submit", description: apiError.data?.error ?? "Please try again.", variant: "destructive" });
         }
       },
     },
@@ -573,7 +574,7 @@ export default function ArticleDetail() {
                 <MessageSquare className="w-4 h-4" />
                 {annotations.length > 0 ? `${annotations.length} Notes` : "Notes"}
               </button>
-              {reviewSubmitted ? (
+              {isArticleAuthor && (reviewSubmitted ? (
                 <span className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border border-green-400/20 text-green-400 bg-green-400/10">
                   <CheckCircle className="w-3.5 h-3.5" />
                   {reviewRequestStatus === "approved" ? "Review Approved" : reviewRequestStatus === "rejected" ? "Review Rejected" : "Review Requested"}
@@ -587,7 +588,7 @@ export default function ArticleDetail() {
                 >
                   <Users className="w-4 h-4" /> {submitReviewRequest.isPending ? "Submitting…" : "Request Review"}
                 </button>
-              )}
+              ))}
               <button
                 className="ml-auto flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 onClick={handleShare}

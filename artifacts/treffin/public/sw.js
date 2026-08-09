@@ -2,8 +2,8 @@
 // v3: network-first navigation fixes blank-page-after-install bug where stale
 // cached HTML referenced old (now-404) hashed JS files after a new deploy.
 
-const STATIC_CACHE  = "treffin-static-v3";
-const DYNAMIC_CACHE = "treffin-dynamic-v3";
+const STATIC_CACHE  = "treffin-static-v4";
+const DYNAMIC_CACHE = "treffin-dynamic-v4";
 
 // Minimal shell pre-cached on install
 const PRECACHE = ["/", "/manifest.json", "/treffin-mark.png"];
@@ -58,10 +58,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       caches.match(request).then((hit) => {
         if (hit) return hit;
-        return fetch(request).then((res) => {
+        return fetch(request).then(async (res) => {
           if (res.ok) {
-            const clone = res.clone();
-            caches.open(STATIC_CACHE).then((c) => c.put(request, clone));
+            const responseForCache = res.clone();
+            const cache = await caches.open(STATIC_CACHE);
+            await cache.put(request, responseForCache);
           }
           return res;
         });
@@ -75,9 +76,11 @@ self.addEventListener("fetch", (event) => {
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
-        .then((res) => {
+        .then(async (res) => {
           if (res.ok) {
-            caches.open(DYNAMIC_CACHE).then((c) => c.put(request, res.clone()));
+            const responseForCache = res.clone();
+            const cache = await caches.open(DYNAMIC_CACHE);
+            await cache.put(request, responseForCache);
           }
           return res;
         })
@@ -97,9 +100,11 @@ self.addEventListener("fetch", (event) => {
     caches.match(request).then((hit) => {
       if (hit) return hit;
       return fetch(request)
-        .then((res) => {
+        .then(async (res) => {
           if (res.ok) {
-            caches.open(DYNAMIC_CACHE).then((c) => c.put(request, res.clone()));
+            const responseForCache = res.clone();
+            const cache = await caches.open(DYNAMIC_CACHE);
+            await cache.put(request, responseForCache);
           }
           return res;
         })

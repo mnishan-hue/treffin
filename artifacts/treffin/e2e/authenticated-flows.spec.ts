@@ -77,4 +77,52 @@ test.describe("authenticated Treffin contracts", () => {
     await expect(page.getByText("42", { exact: true })).toBeVisible();
     await expect(page.getByText("Analytics could not be loaded")).toHaveCount(0);
   });
+
+  test("article review controls are visible only to the article author", async ({ page }) => {
+    await page.route("**/api/articles/4", (route) => json(route, {
+      id: 4,
+      title: "A public article",
+      excerpt: "Summary",
+      content: "Article body",
+      imageUrl: null,
+      authorId: 2,
+      authorName: "Another Author",
+      authorTitle: "Member",
+      authorAvatar: null,
+      category: "Science",
+      readTime: 1,
+      likes: 0,
+      isVerified: false,
+      createdAt: new Date().toISOString(),
+      isTrending: false,
+      isFeatured: false,
+      isExpertReviewed: false,
+      reviewRequestStatus: null,
+      liked: false,
+    }));
+    await page.route("**/api/articles/4/annotations", (route) => json(route, []));
+    await page.route("**/api/articles/4/comments", (route) => json(route, []));
+
+    await page.goto("/articles/4");
+    await expect(page.getByRole("heading", { name: "A public article" })).toBeVisible();
+    await expect(page.getByTestId("button-peer-review")).toHaveCount(0);
+  });
+
+  test("article editor uses a single-column phone layout without horizontal overflow", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "mobile-project check");
+    await page.goto("/articles/new");
+    await expect(page.getByPlaceholder("Article title…")).toBeVisible();
+
+    const layout = await page.evaluate(() => {
+      const main = document.querySelector("main")?.getBoundingClientRect();
+      const aside = document.querySelector("aside")?.getBoundingClientRect();
+      return {
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+        mainBottom: main?.bottom ?? 0,
+        asideTop: aside?.top ?? 0,
+      };
+    });
+    expect(layout.overflow).toBeLessThanOrEqual(1);
+    expect(layout.asideTop).toBeGreaterThanOrEqual(layout.mainBottom - 1);
+  });
 });
