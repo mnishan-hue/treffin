@@ -78,12 +78,12 @@ export default function SignUpPage() {
     <AuthShell>
       {/* Heading */}
       <h1
-        className="text-[1.65rem] font-bold text-white mb-1"
+        className="text-[1.65rem] font-bold text-foreground mb-1"
         style={{ letterSpacing: "-0.02em" }}
       >
         Create your account
       </h1>
-      <p className="text-[#8b98b8] text-sm mb-8">
+      <p className="text-muted-foreground text-sm mb-8">
         Join the arena of ideas on Treffin
       </p>
 
@@ -106,7 +106,7 @@ export default function SignUpPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ada Lovelace"
-              className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder:text-[#8b98b8]/35 outline-none transition-all"
+              className="w-full rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-all"
               style={inputStyle}
               {...inputFocusHandlers}
             />
@@ -119,7 +119,7 @@ export default function SignUpPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder:text-[#8b98b8]/35 outline-none transition-all"
+              className="w-full rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-all"
               style={inputStyle}
               {...inputFocusHandlers}
             />
@@ -134,7 +134,7 @@ export default function SignUpPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
-                className="w-full rounded-xl px-4 py-3 pr-11 text-sm text-white placeholder:text-[#8b98b8]/35 outline-none transition-all"
+                className="w-full rounded-xl px-4 py-3 pr-11 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-all"
                 style={inputStyle}
                 {...inputFocusHandlers}
               />
@@ -142,7 +142,7 @@ export default function SignUpPage() {
                 type="button"
                 tabIndex={-1}
                 onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#8b98b8]/40 hover:text-[#8b98b8]/80 transition-colors"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               >
                 {showPassword ? (
                   <EyeOff className="w-4 h-4" />
@@ -197,7 +197,7 @@ export default function SignUpPage() {
             loadingLabel="Creating account…"
           />
 
-          <p className="text-center text-[0.68rem] text-[#8b98b8]/40 leading-relaxed px-2">
+          <p className="text-center text-[0.68rem] text-muted-foreground/60 leading-relaxed px-2">
             By creating an account you agree to Treffin's{" "}
             <span className="text-indigo-400/70 hover:text-indigo-400 cursor-pointer transition-colors">
               Terms of Service
@@ -210,7 +210,7 @@ export default function SignUpPage() {
           </p>
         </form>
 
-        <p className="text-center text-sm text-[#8b98b8]">
+        <p className="text-center text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link
             href="/sign-in"

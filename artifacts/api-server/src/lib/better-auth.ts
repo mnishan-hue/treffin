@@ -12,6 +12,7 @@ import {
 import { eq } from "drizzle-orm";
 import { toNodeHandler } from "better-auth/node";
 import { jitProvisionUser } from "./jit-provision";
+import { collectTrustedOrigins } from "./security-policy";
 
 const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET;
 if (!authSecret || authSecret.length < 32) {
@@ -19,30 +20,17 @@ if (!authSecret || authSecret.length < 32) {
 }
 
 /**
- * Build the trusted-origins list from the same env vars already used by CORS,
- * plus any explicit Better Auth overrides.
- *
- * Priority order:
- *   1. BETTER_AUTH_TRUSTED_ORIGINS  — explicit override (comma-separated URLs)
- *   2. ALLOWED_ORIGINS              — shared CORS allowlist (comma-separated)
- *   3. REPLIT_DOMAINS               — dev/preview domains injected by Replit
- *
- * No wildcards are used; every entry must be a full origin.
- */
-function buildTrustedOrigins(): string[] {
-  const raw =
-    process.env.BETTER_AUTH_TRUSTED_ORIGINS ??
-    process.env.ALLOWED_ORIGINS ??
-    process.env.REPLIT_DOMAINS ??
-    "";
-
-  return raw
-    .split(",")
-    .map((d) => d.trim())
-    .filter(Boolean)
-    .map((d) => (d.startsWith("http") ? d : `https://${d}`));
+ * Merge the explicit auth/CORS allowlists with the canonical frontend URLs.
+ * No wildcards are used; invalid entries are ignored and origins are deduplicated.
+ */function buildTrustedOrigins(): string[] {
+  return collectTrustedOrigins(
+    process.env.BETTER_AUTH_TRUSTED_ORIGINS,
+    process.env.ALLOWED_ORIGINS,
+    process.env.REPLIT_DOMAINS,
+    process.env.FRONTEND_URL,
+    process.env.ADMIN_FRONTEND_URL,
+  );
 }
-
 export const auth = betterAuth({
   // Use BETTER_AUTH_SECRET if set; fall back to SESSION_SECRET so the
   // existing secret already in Replit works without extra provisioning.

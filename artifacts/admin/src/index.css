@@ -72,3 +72,19 @@
     border-radius: 3px;
   }
 }
+
+/* Mobile viewport containment. Desktop layout remains controlled by existing breakpoints. */
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
+}
+
+@media (max-width: 767px) {
+  main, section, article, aside, form, fieldset, [role="dialog"] { min-width: 0; max-width: 100%; }
+  img, picture, video, canvas, svg, input, select, textarea { max-width: 100%; }
+  h1, h2, h3, p, li { overflow-wrap: anywhere; }
+  [role="dialog"] { max-height: calc(100dvh - 1rem); overflow-y: auto; overscroll-behavior: contain; }
+  [data-radix-popper-content-wrapper] { max-width: calc(100vw - 1rem) !important; }
+}

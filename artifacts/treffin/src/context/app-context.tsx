@@ -1,21 +1,5 @@
-import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, ReactNode } from "react";
 import { useSession } from "@/lib/auth-client";
-import { awardRepApi, type RepEventType } from "@/lib/award-rep";
-
-const LABEL_TO_EVENT: Record<string, RepEventType> = {
-  vote: "daily_question_voted",
-  like: "post_liked",
-  comment: "comment_posted",
-  challenge: "weekly_challenge_won",
-  post: "post_created",
-  article: "article_created",
-  debate: "debate_joined",
-  community: "community_joined",
-  save: "content_saved",
-  profile: "profile_completed",
-  long_comment: "long_comment",
-};
-
 export type SavedItem = {
   id: number;
   type: "post" | "article" | "debate";
@@ -68,7 +52,6 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
         setRepEvents(p => [...p, { id, points: 1, label: "save", x }]);
         setSessionRep(prev => prev + 1);
         setTimeout(() => setRepEvents(p => p.filter(e => e.id !== id)), 2200);
-        awardRepApi("content_saved", "save");
       }
     }
   }, [savedIds, isSignedIn]);
@@ -95,10 +78,6 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
     });
     setTimeout(() => setRepEvents(p => p.filter(e => e.id !== id)), 2200);
 
-    const eventType = LABEL_TO_EVENT[label];
-    if (eventType) {
-      awardRepApi(eventType, label);
-    }
   }, [isSignedIn]);
 
   const triggerLevelUp = useCallback(() => setShowLevelUp(true), []);

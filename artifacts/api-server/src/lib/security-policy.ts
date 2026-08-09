@@ -2,6 +2,19 @@ export function normalizeOrigin(value: string): string | null {
   try { return new URL(value).origin; } catch { return null; }
 }
 
+export function collectTrustedOrigins(...values: Array<string | undefined>): string[] {
+  const origins = new Set<string>();
+  for (const value of values) {
+    for (const entry of (value ?? "").split(",")) {
+      const trimmed = entry.trim();
+      if (!trimmed) continue;
+      const candidate = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+      const origin = normalizeOrigin(candidate);
+      if (origin) origins.add(origin);
+    }
+  }
+  return [...origins];
+}
 export function resolveTrustedFrontendUrl(candidate: unknown, configured: string, allowed: readonly string[]): string {
   const fallback = normalizeOrigin(configured);
   if (!fallback) throw new Error("Configured frontend URL must be absolute");

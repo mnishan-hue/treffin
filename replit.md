@@ -44,16 +44,17 @@ pnpm --filter @workspace/<artifact> add <pkg>
 
 | Secret | Required for |
 |---|---|
-| `CLERK_PUBLISHABLE_KEY` | API server Clerk middleware ✅ set |
-| `CLERK_SECRET_KEY` | API server Clerk middleware ✅ set |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Treffin frontend ClerkProvider ✅ set |
 | `ADMIN_EMAIL` | Admin panel login |
 | `ADMIN_PASSWORD` | Admin panel login (plaintext) |
 | `ADMIN_PASSWORD_HASH` | Admin panel login (bcrypt, preferred over plaintext) |
+| `ADMIN_SESSION_SECRET` | Signs the HttpOnly admin session cookie (required; use an independent random value) |
 | `RESEND_API_KEY` | Email sending via Resend (optional) |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret (required; can reuse `SESSION_SECRET` value — 32 random bytes) |
 | `BETTER_AUTH_BASE_URL` | Full API origin for Better Auth (e.g. `https://treffin-api.onrender.com`); omit in dev, auto-inferred from request |
-| `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated frontend origins allowed to make cross-origin auth requests (e.g. `https://thetreffin.com,https://admin.thetreffin.com`); falls back to `ALLOWED_ORIGINS` then `REPLIT_DOMAINS` |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Additional comma-separated frontend origins trusted by Better Auth |
+| `ALLOWED_ORIGINS` | Comma-separated browser origins allowed by API CORS |
+| `FRONTEND_URL` | Canonical main frontend origin; automatically included in CORS and Better Auth trust |
+| `ADMIN_FRONTEND_URL` | Canonical admin frontend origin; automatically included in CORS and Better Auth trust |
 
 ## User preferences
 

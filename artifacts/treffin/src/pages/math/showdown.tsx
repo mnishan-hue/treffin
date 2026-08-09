@@ -720,7 +720,7 @@ export default function MathShowdown() {
 
       {/* ── Elegance Battle Moderator Choice Modal ────────────────── */}
       {showModChoice && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowModChoice(false)}>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 overflow-y-auto flex items-center justify-center p-4" onClick={() => setShowModChoice(false)}>
           <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
             <div>
               <div className="flex items-center gap-2 mb-1">

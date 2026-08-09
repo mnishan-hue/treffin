@@ -9,7 +9,11 @@ export async function hasAdminSession(): Promise<boolean> {
   }
 }
 
-export async function login(email: string, password: string): Promise<boolean> {
+export type AdminLoginResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+export async function login(email: string, password: string): Promise<AdminLoginResult> {
   try {
     const response = await fetch(`${apiOrigin}/api/admin/login`, {
       method: "POST",
@@ -17,12 +21,30 @@ export async function login(email: string, password: string): Promise<boolean> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    return response.ok;
+    if (!response.ok) {
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      return {
+        ok: false,
+        error: response.status === 401
+          ? "Invalid email or password."
+          : (body?.error ?? "Admin sign-in failed. Please try again."),
+      };
+    }
+
+    // Do not enter the admin shell until the browser proves it stored and can
+    // return the HttpOnly cookie. This catches cross-site cookie policy issues
+    // immediately instead of producing a dashboard full of 401 responses.
+    if (!(await hasAdminSession())) {
+      return {
+        ok: false,
+        error: "Sign-in succeeded, but the secure admin session cookie was blocked. Check the API domain and cookie deployment settings.",
+      };
+    }
+    return { ok: true };
   } catch {
-    return false;
+    return { ok: false, error: "Cannot reach the admin API. Check the API deployment and try again." };
   }
 }
-
 export async function logout(): Promise<void> {
   try {
     await fetch(`${apiOrigin}/api/admin/logout`, {

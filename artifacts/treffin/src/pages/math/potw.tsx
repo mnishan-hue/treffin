@@ -70,7 +70,7 @@ export default function ProblemOfWeek() {
         <div className="mt-16">
           <div className="flex items-center gap-4 mb-8">
             <div className="h-px bg-border flex-1"></div>
-            <h2 className="text-2xl font-serif font-bold text-center whitespace-nowrap">
+            <h2 className="text-xl sm:text-2xl font-serif font-bold text-center break-words">
               Featured Solution
             </h2>
             <div className="h-px bg-border flex-1"></div>

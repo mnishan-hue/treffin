@@ -13,9 +13,9 @@ export function AppLayout({
   rightSidebar?: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="min-h-screen max-w-full overflow-x-clip bg-background text-foreground flex flex-col">
       <TopNavbar />
-      <div className="flex flex-1 max-w-[1400px] mx-auto w-full px-4 gap-6 pt-6">
+      <div className="flex flex-1 max-w-[1400px] min-w-0 mx-auto w-full px-3 sm:px-4 gap-4 lg:gap-6 pt-4 sm:pt-6">
 
         {/* Left sidebar — sticky with internal scroll */}
         <aside className="hidden md:block w-[240px] shrink-0">

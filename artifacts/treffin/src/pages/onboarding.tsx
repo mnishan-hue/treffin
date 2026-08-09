@@ -1006,7 +1006,7 @@ function Step5({
 function TrustFooter() {
   return (
     <div className="w-full border-t border-border/30 bg-black/30 backdrop-blur-sm">
-      <div className="max-w-5xl mx-auto px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-6">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-5 grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
         <div className="flex items-start gap-3">
           <Shield className="w-5 h-5 text-indigo-400 shrink-0 mt-0.5" />
           <div>

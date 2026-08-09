@@ -2,7 +2,7 @@ import { Router } from "express";
 import { jitProvisionUser } from "../lib/jit-provision";
 import { db } from "@workspace/db";
 import { debatesTable, commentsTable, debateOutcomesTable, debateDailyVotesTable, debateAgreementsTable, debateAgreementUpvotesTable, debateParticipantVotesTable, usersTable, debateRulesAcksTable, debateOptOutsTable, modAuditLogTable, commentLikesTable, debateCreatorReportsTable, commentReactionsTable, debateAxisWinnersTable } from "@workspace/db";
-import { eq, desc, inArray, and, sql } from "drizzle-orm";
+import { eq, desc, inArray, and, or, sql } from "drizzle-orm";
 import { createNotification } from "../lib/notify";
 import { checkToxicity, detectAiContent } from "../lib/content-moderation";
 import { awardRep } from "./reputation";
@@ -22,13 +22,14 @@ function getViewerCount(debateId: number): number {
   return count;
 }
 // Clean up stale entries every 60 s
-setInterval(() => {
+const viewerCleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [did, viewers] of debateViewers) {
     for (const [cid, ts] of viewers) { if (now - ts > 90_000) viewers.delete(cid); }
     if (viewers.size === 0) debateViewers.delete(did);
   }
 }, 60_000);
+viewerCleanupInterval.unref();
 
 const PERSONAL_ATTACK_PATTERNS = [
   /\byou('re| are)\s+(just|always|never|stupid|dumb|ignorant|wrong|lying|clueless)\b/i,
@@ -1307,11 +1308,12 @@ router.get("/debates/:id/agreements", async (req, res) => {
     const avatarMap = new Map<string, string | null>();
     if (authorIds.length > 0) {
       const authorProfiles = await db
-        .select({ clerkId: usersTable.clerkId, avatarUrl: usersTable.avatarUrl })
+        .select({ clerkId: usersTable.clerkId, betterAuthId: usersTable.betterAuthId, avatarUrl: usersTable.avatarUrl })
         .from(usersTable)
-        .where(inArray(usersTable.clerkId, authorIds));
-      for (const p of authorProfiles) {
-        if (p.clerkId) avatarMap.set(p.clerkId, p.avatarUrl ?? null);
+        .where(or(inArray(usersTable.betterAuthId, authorIds), inArray(usersTable.clerkId, authorIds)));
+      for (const profile of authorProfiles) {
+        if (profile.betterAuthId) avatarMap.set(profile.betterAuthId, profile.avatarUrl ?? null);
+        if (profile.clerkId) avatarMap.set(profile.clerkId, profile.avatarUrl ?? null);
       }
     }
 
@@ -1509,7 +1511,7 @@ router.post("/agreements/:id/upvote", async (req, res) => {
     const [upvoteAuthorProfile] = await db
       .select({ avatarUrl: usersTable.avatarUrl })
       .from(usersTable)
-      .where(eq(usersTable.clerkId, updated.authorId))
+      .where(or(eq(usersTable.betterAuthId, updated.authorId), eq(usersTable.clerkId, updated.authorId)))
       .limit(1);
 
     res.json({

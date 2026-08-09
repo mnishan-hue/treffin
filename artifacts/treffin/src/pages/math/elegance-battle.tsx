@@ -107,7 +107,7 @@ function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSo
         <span className={palB.text}>{solB.approach.charAt(0).toUpperCase() + solB.approach.slice(1)}</span>
       </div>
 
-      <div className="relative h-4 rounded-full overflow-hidden bg-white/5 border border-white/8">
+      <div className="relative h-4 rounded-full overflow-hidden bg-muted/60 border border-border/60">
         <motion.div
           className="absolute left-0 top-0 h-full rounded-l-full"
           style={{ background: `linear-gradient(to right, ${dnaColor(solA.approach)}, ${dnaColor(solA.approach)}cc)` }}
@@ -121,12 +121,12 @@ function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSo
           transition={{ duration: 1, ease: "easeOut" }}
         />
         {/* Centre divider */}
-        <div className="absolute left-1/2 inset-y-0 -translate-x-1/2 w-0.5 bg-white/50 z-10" />
+        <div className="absolute left-1/2 inset-y-0 -translate-x-1/2 w-0.5 bg-muted/600 z-10" />
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{pA}% · {a} pts</span>
-        <span className="text-white/30">vs</span>
+        <span className="text-muted-foreground">vs</span>
         <span>{pB}% · {b} pts</span>
       </div>
     </div>
@@ -188,7 +188,7 @@ function AxisVoteTile({
       }}
       className={cn(
         "flex flex-col items-center gap-1 py-3 px-1 rounded-xl text-center transition-all",
-        canVote && !isMine && "hover:bg-white/7 hover:border-white/20",
+        canVote && !isMine && "hover:bg-muted hover:border-border",
         isMine && "ring-1",
       )}
     >
@@ -226,7 +226,7 @@ function StepCard({
       style={{ borderLeftColor: hColor }}
       className={cn(
         "rounded-xl border border-l-2 p-3 transition-all cursor-default",
-        isActive ? "border-primary/40 bg-primary/5" : "border-white/8 bg-white/[0.025] hover:bg-white/5",
+        isActive ? "border-primary/40 bg-primary/5" : "border-border/60 bg-card hover:bg-muted/60",
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -242,7 +242,7 @@ function StepCard({
       <div className="flex items-center gap-3 mt-2.5 pl-9">
         {/* Soundness mini-bar */}
         <div className="flex items-center gap-1.5">
-          <div className="h-1.5 w-16 rounded-full bg-white/8 overflow-hidden">
+          <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{ width: `${health * 100}%`, background: hColor }} />
           </div>
           <span className="text-[10px] text-emerald-400 font-semibold">▲{soundness.up}</span>
@@ -317,7 +317,7 @@ function ArgumentCard({
   const net = arg.upvotes - arg.downvotes;
 
   return (
-    <div className={cn("space-y-2", depth > 0 && "pl-2 sm:pl-4 border-l border-white/8")}>
+    <div className={cn("space-y-2", depth > 0 && "pl-2 sm:pl-4 border-l border-border/60")}>
       <div className="flex gap-2.5 group">
         {/* Vote column */}
         <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0">
@@ -348,7 +348,7 @@ function ArgumentCard({
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <div className="rounded-xl bg-white/[0.04] border border-white/8 px-3 py-2.5 group-hover:border-white/14 transition-colors">
+          <div className="rounded-xl bg-muted/60 border border-border/60 px-3 py-2.5 group-hover:border-border transition-colors">
             <div className="flex items-center gap-2 mb-1.5">
               <span className="w-5 h-5 rounded-full bg-indigo-900/60 border border-indigo-500/30 flex items-center justify-center text-[9px] font-black text-indigo-300">
                 {(arg.userName ?? "?").charAt(0).toUpperCase()}
@@ -376,7 +376,7 @@ function ArgumentCard({
             value={replyText}
             onChange={e => setReplyText(e.target.value)}
             placeholder="Write a reply…"
-            className="text-sm resize-none flex-1 bg-white/5 border-white/10 focus:border-indigo-500/50"
+            className="text-sm resize-none flex-1 bg-muted/60 border-border focus:border-indigo-500/50"
           />
           <Button size="sm" onClick={() => replyMut.mutate()} disabled={!replyText.trim() || replyMut.isPending}>
             <Send className="w-3 h-3" />
@@ -422,16 +422,16 @@ function JustificationPanel({
   });
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a1c] border-l border-white/8">
+    <div className="flex flex-col h-full bg-card border-l border-border/60">
       {/* Header */}
-      <div className="flex items-start justify-between px-4 py-3.5 border-b border-white/8 gap-3">
+      <div className="flex items-start justify-between px-4 py-3.5 border-b border-border/60 gap-3">
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Step Analysis</p>
           <p className="text-sm font-semibold mt-0.5 truncate">{stepLabel}</p>
         </div>
         <button
           onClick={onClose}
-          className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-white hover:bg-white/8 transition-all"
+          className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
         >
           <X className="w-4 h-4" />
         </button>
@@ -448,7 +448,7 @@ function JustificationPanel({
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
         {filtered.length === 0 ? (
           <div className="text-center pt-8 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mx-auto">
+            <div className="w-12 h-12 rounded-2xl bg-muted/60 border border-border flex items-center justify-center mx-auto">
               <BookOpen className="w-5 h-5 text-muted-foreground/50" />
             </div>
             <p className="text-sm text-muted-foreground">No annotations yet.</p>
@@ -463,13 +463,13 @@ function JustificationPanel({
 
       {/* Compose */}
       {viewerId ? (
-        <div className="px-4 py-4 border-t border-white/8 space-y-2.5">
+        <div className="px-4 py-4 border-t border-border/60 space-y-2.5">
           <Textarea
             rows={3}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             placeholder="Is this step valid? Annotate your take…"
-            className="text-sm resize-none bg-white/5 border-white/10 focus:border-indigo-500/40"
+            className="text-sm resize-none bg-muted/60 border-border focus:border-indigo-500/40"
           />
           <Button
             className="w-full bg-indigo-600 hover:bg-indigo-500"
@@ -481,7 +481,7 @@ function JustificationPanel({
           </Button>
         </div>
       ) : (
-        <p className="px-4 py-4 text-xs text-muted-foreground text-center border-t border-white/8">
+        <p className="px-4 py-4 text-xs text-muted-foreground text-center border-t border-border/60">
           Sign in to annotate steps.
         </p>
       )}
@@ -524,7 +524,7 @@ function SolutionCard({
       pal.border,
     )}>
       {/* ── Card header ── */}
-      <div className="px-5 pt-5 pb-4 space-y-4 border-b border-white/8">
+      <div className="px-5 pt-5 pb-4 space-y-4 border-b border-border/60">
         {/* Approach badge + score */}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2.5 flex-wrap">
@@ -539,7 +539,7 @@ function SolutionCard({
             <span className="text-xs text-muted-foreground">by {sol.userName}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-xl font-black text-white tabular-nums">{total}</span>
+            <span className="text-xl font-black text-foreground tabular-nums">{total}</span>
             <span className="text-[10px] text-muted-foreground uppercase tracking-wide">pts</span>
           </div>
         </div>
@@ -605,7 +605,7 @@ function SolutionCard({
 
       {/* ── Top discussions ── */}
       {topArgs.length > 0 && (
-        <div className="px-5 py-4 border-t border-white/8 space-y-3">
+        <div className="px-5 py-4 border-t border-border/60 space-y-3">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Top Discussions</p>
           <div className="space-y-2">
             {topArgs.map(a => (
@@ -671,7 +671,7 @@ function VerdictPanel({
           </div>
         </motion.div>
       ) : (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.025] p-5 text-center">
+        <div className="rounded-2xl border border-border bg-card p-5 text-center">
           <Swords className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
           <p className="text-sm text-muted-foreground">Battle is still live — no verdict yet.</p>
         </div>
@@ -709,7 +709,7 @@ function VerdictPanel({
       {viewerId && !data.battle?.verdict && !data.battle?.isEnded && (
         <div>
           {open ? (
-            <div className="space-y-3 rounded-2xl border border-white/12 bg-white/[0.03] p-5">
+            <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
               <p className="text-sm font-bold">Write the Verdict</p>
               <p className="text-xs text-muted-foreground">Summarise the winning approach and reasoning.</p>
               <Textarea
@@ -717,7 +717,7 @@ function VerdictPanel({
                 value={draft}
                 onChange={e => setDraft(e.target.value)}
                 placeholder="e.g. The geometric approach wins for elegance — its single diagram replaces 3 pages of algebra…"
-                className="resize-none bg-white/5 border-white/10"
+                className="resize-none bg-muted/60 border-border"
               />
               <div className="flex gap-2">
                 <Button
@@ -822,13 +822,13 @@ export default function MathEleganceBattle() {
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#070710]">
+      <div className="min-h-screen bg-background text-foreground">
         <div className="container mx-auto px-4 py-10 max-w-6xl space-y-6">
-          <Skeleton className="h-8 w-48 bg-white/8" />
-          <Skeleton className="h-40 w-full rounded-2xl bg-white/5" />
+          <Skeleton className="h-8 w-48 bg-muted" />
+          <Skeleton className="h-40 w-full rounded-2xl bg-muted/60" />
           <div className="grid lg:grid-cols-2 gap-5">
-            <Skeleton className="h-[580px] rounded-2xl bg-white/5" />
-            <Skeleton className="h-[580px] rounded-2xl bg-white/5" />
+            <Skeleton className="h-[580px] rounded-2xl bg-muted/60" />
+            <Skeleton className="h-[580px] rounded-2xl bg-muted/60" />
           </div>
         </div>
       </div>
@@ -837,7 +837,7 @@ export default function MathEleganceBattle() {
 
   if (isError || !data) {
     return (
-      <div className="min-h-screen bg-[#070710] flex items-center justify-center">
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="text-center space-y-4 px-4">
           <Swords className="w-12 h-12 text-muted-foreground/30 mx-auto" />
           <p className="text-muted-foreground">Could not load this battle.</p>
@@ -854,7 +854,7 @@ export default function MathEleganceBattle() {
   const isEnded = !!data.battle?.isEnded;
 
   return (
-    <div className="min-h-[calc(100dvh-4rem)] bg-[#070710]">
+    <div className="min-h-[calc(100dvh-4rem)] bg-background text-foreground">
       {/* Floating reaction bursts */}
       <AnimatePresence>
         {bursts.map(b => <FloatingBurst key={b.id} emoji={b.emoji} x={b.x} />)}
@@ -865,14 +865,14 @@ export default function MathEleganceBattle() {
         {/* ── Back nav ── */}
         <button
           onClick={() => navigate(`/math/problem/${problemId}`)}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-white transition-colors group"
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors group"
         >
           <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
           Back to Problem
         </button>
 
         {/* ── Hero ── */}
-        <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-[#0e0e2e] via-[#090918] to-[#0a0a1e] p-6 md:p-8">
+        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 md:p-8">
           {/* Ambient gradients */}
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute top-0 left-0 w-80 h-80 bg-blue-600/8 rounded-full blur-3xl" />
@@ -901,7 +901,7 @@ export default function MathEleganceBattle() {
                     </span>
                   )}
                   {isEnded && (
-                    <Badge variant="outline" className="text-muted-foreground border-white/15">
+                    <Badge variant="outline" className="text-muted-foreground border-border">
                       Concluded
                     </Badge>
                   )}
@@ -946,7 +946,7 @@ export default function MathEleganceBattle() {
                     >
                       {i === 0 && <Trophy className="w-3.5 h-3.5 text-yellow-400" />}
                       <span className={cn("text-xs font-bold capitalize", pal.text)}>{sol.approach}</span>
-                      <span className="text-sm font-black text-white tabular-nums">{totalVotes(sol)}</span>
+                      <span className="text-sm font-black text-foreground tabular-nums">{totalVotes(sol)}</span>
                       <span className="text-[10px] text-muted-foreground">pts</span>
                     </div>
                   );
@@ -958,7 +958,7 @@ export default function MathEleganceBattle() {
 
         {/* ── Tab switcher ── */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex gap-1 bg-white/[0.04] rounded-xl p-1 border border-white/8">
+          <div className="flex gap-1 bg-muted/60 rounded-xl p-1 border border-border/60">
             {(["arena", "verdict"] as const).map(tab => (
               <button
                 key={tab}
@@ -966,8 +966,8 @@ export default function MathEleganceBattle() {
                 className={cn(
                   "px-5 py-2 text-sm font-semibold rounded-lg transition-all",
                   activeTab === tab
-                    ? "bg-white/12 text-white shadow-sm"
-                    : "text-muted-foreground hover:text-white hover:bg-white/6",
+                    ? "bg-accent text-accent-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 )}
               >
                 {tab === "arena" ? "⚔️ Arena" : "🏆 Verdict"}
@@ -985,7 +985,7 @@ export default function MathEleganceBattle() {
         {activeTab === "arena" && (
           <div className="relative">
             {data.solutions.length === 0 ? (
-              <div className="text-center py-24 rounded-2xl border border-white/8 bg-white/[0.02] space-y-4">
+              <div className="text-center py-24 rounded-2xl border border-border/60 bg-card space-y-4">
                 <Sparkles className="w-12 h-12 mx-auto text-muted-foreground/25" />
                 <div>
                   <p className="text-foreground/60 font-semibold">No solutions yet</p>
@@ -995,7 +995,7 @@ export default function MathEleganceBattle() {
                 </div>
                 <Button
                   variant="outline"
-                  className="border-white/15"
+                  className="border-border"
                   onClick={() => navigate(`/math/problem/${problemId}`)}
                 >
                   Submit a Solution
@@ -1012,7 +1012,7 @@ export default function MathEleganceBattle() {
                 {/* VS divider — desktop */}
                 {data.solutions.length >= 2 && (
                   <div className="hidden md:flex absolute left-1/2 top-20 -translate-x-1/2 z-10 pointer-events-none">
-                    <div className="w-10 h-10 rounded-full bg-[#070710] border-2 border-white/15 flex items-center justify-center text-xs font-black text-white/80 shadow-2xl">
+                    <div className="w-10 h-10 rounded-full bg-background text-foreground border-2 border-border flex items-center justify-center text-xs font-black text-foreground/80 shadow-2xl">
                       VS
                     </div>
                   </div>

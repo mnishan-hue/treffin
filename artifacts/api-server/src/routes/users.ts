@@ -571,6 +571,8 @@ router.put("/users/me", async (req, res) => {
         .insert(usersTable)
         .values({
           betterAuthId: userId,
+          // Keep legacy identity-backed relations valid for newly synced users.
+          clerkId: userId,
           name: name ?? "New Thinker",
           title: title ?? "Member",
           bio: bio ?? null,

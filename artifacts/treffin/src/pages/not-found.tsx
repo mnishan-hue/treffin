@@ -4,8 +4,8 @@ import { Home, MessageSquare, FileText, Compass } from "lucide-react";
 export default function NotFound() {
   return (
     <div
-      className="min-h-screen w-full flex items-center justify-center px-6"
-      style={{ background: "radial-gradient(ellipse at top, #0d1830 0%, #060810 60%)" }}
+      className="min-h-screen w-full flex items-center justify-center px-6 bg-background text-foreground"
+      style={{ backgroundImage: "radial-gradient(ellipse at top, hsl(var(--primary) / 0.12) 0%, transparent 60%)" }}
     >
       <div className="flex flex-col items-center text-center max-w-md gap-8">
         <div className="relative">

@@ -108,7 +108,7 @@ export default function Communities() {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold flex items-center gap-1.5">Communities <SectionInfo title="Communities" icon="🏘️" accent="from-emerald-400 to-teal-600" description="Find your intellectual tribe. Join topic-based groups, participate in events and weekly challenges, and go deep on the subjects you care about most." /></h1>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0 shrink-0">
             <button
               className="flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-lg treffin-gradient text-white border-transparent hover:opacity-90 transition-all whitespace-nowrap"
               onClick={() => {
@@ -182,7 +182,7 @@ export default function Communities() {
                     className={cn("relative bg-gradient-to-br border rounded-xl p-5 hover:scale-[1.005] hover:shadow-[0_0_24px_rgba(79,70,229,0.1)] transition-all cursor-pointer", community.gradient)}
                     onClick={() => setLocation(`/communities/${community.id}`)}
                   >
-                    <div className="flex items-start gap-4">
+                    <div className="flex flex-col sm:flex-row items-start gap-4">
                       {/* Emoji icon */}
                       <div className="w-12 h-12 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center text-2xl shrink-0">
                         {community.emoji}
@@ -211,7 +211,7 @@ export default function Communities() {
                         <p className="text-sm text-muted-foreground leading-relaxed">{community.description}</p>
 
                         {/* Stats row */}
-                        <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-xs text-muted-foreground">
                           <div className="flex items-center gap-1.5">
                             <Users className="w-3.5 h-3.5" />
                             <span className="font-medium">{formatNumber(community.memberCount)}</span>
@@ -230,7 +230,7 @@ export default function Communities() {
                       </div>
 
                       {/* Action button */}
-                      <div className="flex flex-col items-end gap-2 shrink-0">
+                      <div className="flex flex-row sm:flex-col items-center sm:items-end gap-2 w-full sm:w-auto shrink-0">
                         <button
                           className={cn(
                             "text-xs font-semibold px-4 py-2 rounded-xl transition-all border",
