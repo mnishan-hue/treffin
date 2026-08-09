@@ -33,7 +33,7 @@ export function DailyQuestionCard({ question }: { question: DailyQuestion }) {
   const handleView = () => setLocation(`/debates/${question.id}`);
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-primary/30 shadow-[0_0_40px_rgba(37,99,235,0.12)]" style={{ background: "linear-gradient(135deg, #0d1830 0%, #060c18 60%, #0a0510 100%)" }}>
+    <div className="relative overflow-hidden rounded-2xl border border-primary/30 shadow-[0_0_40px_rgba(37,99,235,0.12)] bg-card" style={{ backgroundImage: "linear-gradient(135deg, hsl(var(--primary) / 0.14) 0%, hsl(var(--card)) 60%, hsl(var(--card)) 100%)" }}>
       {question.imageUrl && (
         <div
           className="absolute right-0 top-0 w-2/5 h-full opacity-40 pointer-events-none"
@@ -52,7 +52,7 @@ export function DailyQuestionCard({ question }: { question: DailyQuestion }) {
           )}
         </div>
 
-        <h2 className="text-xl sm:text-2xl font-bold leading-tight text-white">
+        <h2 className="text-xl sm:text-2xl font-bold leading-tight text-foreground">
           {question.question}
         </h2>
 
@@ -80,7 +80,7 @@ export function DailyQuestionCard({ question }: { question: DailyQuestion }) {
             {hasVoted ? "Voted — Enter Debate" : "Join Debate"}
           </button>
           <button
-            className="bg-white/10 hover:bg-white/15 text-white font-semibold px-5 py-2 rounded-full text-sm transition-colors border border-white/20 hover:-translate-y-0.5"
+            className="bg-muted/80 hover:bg-muted text-foreground font-semibold px-5 py-2 rounded-full text-sm transition-colors border border-border hover:-translate-y-0.5"
             onClick={handleView}
             data-testid="button-view-debate"
           >

@@ -5,9 +5,10 @@ import { useSession } from "@/lib/auth-client";
 import {
   Sparkles, Brain, Shield, Users, Star, Zap, Globe, BookOpen,
   MessageSquare, TrendingUp, Lightbulb, Heart, ArrowRight,
-  Mail, ChevronRight, Flame, Award, Target, Phone, Sigma
+  Mail, ChevronRight, Flame, Award, Target, Phone, Sigma, Moon, Sun
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/context/theme-context";
 
 // ── Reusable fade-in wrapper ───────────────────────────────────────────────
 
@@ -115,10 +116,10 @@ function FloatingDebateCard({
 }) {
   return (
     <motion.div
-      className="absolute hidden xl:block w-60 rounded-2xl border border-white/10 p-4 backdrop-blur-md"
+      className="absolute hidden xl:block w-60 rounded-2xl border border-border p-4 backdrop-blur-md"
       style={{
-        background: "rgba(10,16,36,0.75)",
-        boxShadow: "0 8px 32px rgba(37,99,235,0.15), inset 0 1px 0 rgba(255,255,255,0.05)",
+        background: "hsl(var(--card) / 0.82)",
+        boxShadow: "0 8px 32px rgba(37,99,235,0.15), inset 0 1px 0 hsl(var(--foreground) / 0.05)",
         ...style,
       }}
       initial={{ opacity: 0, y: 24 }}
@@ -133,14 +134,14 @@ function FloatingDebateCard({
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Live Debate</span>
         </div>
-        <p className="text-sm text-white/90 font-semibold leading-snug mb-4">{question}</p>
+        <p className="text-sm text-foreground/90 font-semibold leading-snug mb-4">{question}</p>
         <div className="space-y-2">
           <div>
             <div className="flex justify-between text-[11px] mb-1">
               <span className="text-indigo-400 font-semibold">Support</span>
-              <span className="text-white/60">{support}%</span>
+              <span className="text-muted-foreground">{support}%</span>
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <motion.div
                 className="h-full rounded-full"
                 style={{ background: "linear-gradient(90deg,#2563EB,#4F6AF7)" }}
@@ -153,9 +154,9 @@ function FloatingDebateCard({
           <div>
             <div className="flex justify-between text-[11px] mb-1">
               <span className="text-rose-400 font-semibold">Oppose</span>
-              <span className="text-white/60">{oppose}%</span>
+              <span className="text-muted-foreground">{oppose}%</span>
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
               <motion.div
                 className="h-full rounded-full"
                 style={{ background: "linear-gradient(90deg,#f43f5e,#ec4899)" }}
@@ -195,7 +196,7 @@ function FounderSignature() {
         <div className="relative inline-block mb-1">
           <span
             className="text-[15px] font-bold tracking-tight leading-none"
-            style={{ color: "rgba(255,255,255,0.92)" }}
+            style={{ color: "hsl(var(--foreground) / 0.92)" }}
           >
             MN Nishan
           </span>
@@ -238,6 +239,7 @@ function SectionLabel({ icon: Icon, label }: { icon: React.ElementType; label: s
 export default function About() {
   const [, setLocation] = useLocation();
   const { isSignedIn } = useSession();
+  const { theme, toggleTheme } = useTheme();
   const handleJoin = () => setLocation(isSignedIn ? "/home" : "/onboarding");
 
   const features = [
@@ -352,7 +354,7 @@ export default function About() {
       <AtmosphericBg />
 
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 border-b border-white/[0.06] backdrop-blur-sm">
+      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 border-b border-border/60 backdrop-blur-sm">
         <button onClick={() => setLocation("/home")} className="flex items-center gap-3">
           <img
             src={`${import.meta.env.BASE_URL}treffin-mark.png`}
@@ -361,10 +363,17 @@ export default function About() {
           />
           <span className="font-black text-lg tracking-tight">Treffin</span>
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <button
+            onClick={toggleTheme}
+            className="w-9 h-9 rounded-lg hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Toggle theme"
+          >
+            {theme === "dark" ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />}
+          </button>
           <button
             onClick={() => setLocation("/home")}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
+            className="hidden sm:block text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-muted"
           >
             Back to App
           </button>
@@ -482,7 +491,7 @@ export default function About() {
             whileHover={{ scale: 1.04, y: -2 }}
             whileTap={{ scale: 0.97 }}
             onClick={handleJoin}
-            className="group flex items-center gap-3 px-9 py-4 rounded-2xl font-bold text-lg border border-white/20 bg-white/5 hover:bg-white/10 backdrop-blur-md transition-colors"
+            className="group flex items-center gap-3 px-9 py-4 rounded-2xl font-bold text-lg border border-border bg-card/70 hover:bg-muted backdrop-blur-md transition-colors"
           >
             <Users className="w-5 h-5 text-primary" />
             Join the Community
@@ -545,10 +554,10 @@ export default function About() {
                 <motion.div
                   key={i}
                   whileHover={{ scale: 1.04, y: -3 }}
-                  className="rounded-2xl border border-white/10 p-5 backdrop-blur-sm"
+                  className="rounded-2xl border border-border p-5 backdrop-blur-sm"
                   style={{
-                    background: "rgba(15,23,42,0.65)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05)",
+                    background: "hsl(var(--card) / 0.78)",
+                    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.05)",
                   }}
                 >
                   <div className="text-3xl mb-3">{item.icon}</div>
@@ -623,7 +632,7 @@ export default function About() {
                     p.border
                   )}
                 >
-                  <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center mb-5 border border-white/10">
+                  <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center mb-5 border border-border">
                     <p.icon className="w-5 h-5 text-primary" />
                   </div>
                   <h3 className="font-bold text-lg text-foreground mb-3">{p.title}</h3>
@@ -659,8 +668,8 @@ export default function About() {
             <FadeIn key={i} delay={i * 0.09}>
               <motion.div
                 whileHover={{ scale: 1.03, y: -5 }}
-                className="group relative rounded-2xl border border-white/10 p-7 h-full overflow-hidden cursor-default"
-                style={{ background: "rgba(12,18,38,0.85)", backdropFilter: "blur(12px)" }}
+                className="group relative rounded-2xl border border-border p-7 h-full overflow-hidden cursor-default"
+                style={{ background: "hsl(var(--card) / 0.9)", backdropFilter: "blur(12px)" }}
               >
                 <div
                   className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 rounded-2xl"
@@ -713,10 +722,10 @@ export default function About() {
               <FadeIn key={i} delay={i * 0.1}>
                 <motion.div
                   whileHover={{ scale: 1.02, x: 4 }}
-                  className="flex items-start gap-5 p-7 rounded-2xl border border-white/10 backdrop-blur-sm"
+                  className="flex items-start gap-5 p-7 rounded-2xl border border-border backdrop-blur-sm"
                   style={{
-                    background: "rgba(15,23,42,0.55)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+                    background: "hsl(var(--card) / 0.72)",
+                    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.04)",
                   }}
                 >
                   <div className="shrink-0 w-10 h-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center mt-0.5">
@@ -811,7 +820,7 @@ export default function About() {
             for evidence, nuance, and good-faith debate.
           </p>
 
-          <div className="grid grid-cols-3 gap-6 max-w-2xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-2xl mx-auto">
             {[
               { val: "∞", label: "Ideas to explore" },
               { val: "1", label: "Platform to do it" },
@@ -820,8 +829,8 @@ export default function About() {
               <motion.div
                 key={i}
                 whileHover={{ scale: 1.06 }}
-                className="rounded-2xl border border-white/10 p-6 backdrop-blur-sm"
-                style={{ background: "rgba(15,23,42,0.55)" }}
+                className="rounded-2xl border border-border p-6 backdrop-blur-sm"
+                style={{ background: "hsl(var(--card) / 0.72)" }}
               >
                 <div
                   className="text-4xl font-black mb-2 bg-clip-text text-transparent"
@@ -866,7 +875,7 @@ export default function About() {
             <blockquote className="relative pt-10 mb-12 text-center">
               <p
                 className="text-2xl md:text-[1.7rem] font-semibold leading-[1.65] tracking-[-0.01em]"
-                style={{ color: "rgba(255,255,255,0.93)", fontStyle: "italic" }}
+                style={{ color: "hsl(var(--foreground) / 0.93)", fontStyle: "italic" }}
               >
                 We built Treffin because we were tired of scrolling through noise when we
                 wanted to think. We wanted a place where writing a thoughtful argument
@@ -889,7 +898,7 @@ export default function About() {
                 intelligence is celebrated, meaningful conversations are the norm, and young voices
                 are genuinely heard. Every feature, every design decision, every debate format is shaped
                 by one question:{" "}
-                <em className="font-semibold" style={{ color: "rgba(255,255,255,0.85)" }}>does this make the thinking better?</em>
+                <em className="font-semibold" style={{ color: "hsl(var(--foreground) / 0.85)" }}>does this make the thinking better?</em>
               </p>
               <p className="text-muted-foreground leading-relaxed">
                 We're early. We have a long way to go. But if you're reading this and you care about
@@ -937,16 +946,16 @@ export default function About() {
                   target={c.type === "whatsapp" ? "_blank" : undefined}
                   rel={c.type === "whatsapp" ? "noopener noreferrer" : undefined}
                   whileHover={{ scale: 1.03, y: -4 }}
-                  className="block group rounded-2xl border border-white/10 p-8 cursor-pointer"
+                  className="block group rounded-2xl border border-border p-8 cursor-pointer"
                   style={{
                     background: c.type === "whatsapp"
-                      ? "linear-gradient(135deg,rgba(22,163,74,0.08),rgba(12,18,38,0.85))"
-                      : "rgba(12,18,38,0.75)",
+                      ? "linear-gradient(135deg,rgba(22,163,74,0.08),hsl(var(--card) / 0.9))"
+                      : "hsl(var(--card) / 0.82)",
                     backdropFilter: "blur(12px)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04)",
+                    boxShadow: "inset 0 1px 0 hsl(var(--foreground) / 0.04)",
                     borderColor: c.type === "whatsapp"
                       ? "rgba(22,163,74,0.25)"
-                      : "rgba(255,255,255,0.1)",
+                      : "hsl(var(--border))",
                   }}
                 >
                   <div
@@ -1042,7 +1051,7 @@ export default function About() {
                 whileHover={{ scale: 1.04, y: -3 }}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => setLocation("/home")}
-                className="group flex items-center gap-3 px-10 py-5 rounded-2xl font-bold text-lg border border-white/20 bg-white/5 hover:bg-white/10 backdrop-blur-md transition-colors"
+                className="group flex items-center gap-3 px-10 py-5 rounded-2xl font-bold text-lg border border-border bg-card/70 hover:bg-muted backdrop-blur-md transition-colors"
               >
                 <Globe className="w-5 h-5 text-primary" />
                 Explore First
@@ -1053,9 +1062,9 @@ export default function About() {
       </section>
 
       {/* ── Footer ───────────────────────────────────────────────────── */}
-      <footer className="relative z-10 border-t border-white/[0.06] py-10 px-6">
+      <footer className="relative z-10 border-t border-border/60 py-10 px-6">
         <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-5 text-sm text-muted-foreground">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
             <img
               src={`${import.meta.env.BASE_URL}treffin-mark.png`}
               alt="Treffin"

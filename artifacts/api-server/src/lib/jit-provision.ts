@@ -35,6 +35,8 @@ export async function jitProvisionUser(
       .insert(usersTable)
       .values({
         betterAuthId: baUser.id,
+        // Bridge legacy foreign keys while Better Auth is the canonical identity.
+        clerkId: baUser.id,
         name: fullName,
         title: "New Member",
         bio: null,

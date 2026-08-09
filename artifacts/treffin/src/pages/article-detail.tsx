@@ -329,14 +329,14 @@ export default function ArticleDetail() {
       {/* Annotation form popup – appears near selection */}
       {selectionInfo && showAnnotationForm && (
         <div
-          className="fixed z-50"
+          className="fixed z-50 max-w-[calc(100vw-1rem)]"
           style={{
             left: Math.max(8, Math.min(selectionInfo.x, window.innerWidth - 296)),
             top: Math.max(70, selectionInfo.y - window.scrollY - 12),
             transform: "translate(-40%, -100%)",
           }}
         >
-          <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-72 flex flex-col gap-3">
+          <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-72 max-w-full flex flex-col gap-3">
             <div className="flex items-start justify-between gap-2">
               <p className="text-xs text-muted-foreground italic line-clamp-2">
                 "{selectionInfo.text.slice(0, 80)}{selectionInfo.text.length > 80 ? "…" : ""}"
@@ -380,7 +380,7 @@ export default function ArticleDetail() {
 
       {/* Annotations sidebar panel */}
       {showAnnotationPanel && (
-        <div className="fixed right-4 top-[70px] bottom-4 w-72 z-40 flex flex-col bg-card border border-border rounded-xl shadow-xl overflow-hidden">
+        <div className="fixed left-2 right-2 sm:left-auto sm:right-4 top-[70px] bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] sm:bottom-4 w-auto sm:w-72 z-40 flex flex-col bg-card border border-border rounded-xl shadow-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
             <div className="flex items-center gap-2">
               <Highlighter className="w-4 h-4 text-primary" />

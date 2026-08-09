@@ -124,7 +124,7 @@ export default function Analytics({ onNavigate }: { onNavigate: (s: Section) => 
   return (
     <div className="space-y-7">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-foreground">Command Center</h2>
           <p className={`text-sm mt-0.5 ${totalPending > 0 ? "text-amber-400" : "text-emerald-400"}`}>
@@ -188,7 +188,7 @@ export default function Analytics({ onNavigate }: { onNavigate: (s: Section) => 
         <h3 className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-3">
           Platform Overview
         </h3>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
           {[
             { label: "Users", value: stats.totalUsers, icon: "👤" },
             { label: "Posts", value: stats.totalPosts, icon: "📝" },

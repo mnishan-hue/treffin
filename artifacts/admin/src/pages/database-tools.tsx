@@ -244,7 +244,7 @@ function TableCounts() {
 
   return (
     <div className="rounded-xl border border-border bg-card p-5 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-sm text-foreground">Current Row Counts</h3>
         <button
           onClick={refresh}
@@ -255,7 +255,7 @@ function TableCounts() {
         </button>
       </div>
       {counts ? (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {items.map(({ label, key }) => (
             <div key={key} className="rounded-lg bg-muted/30 px-3 py-2.5 text-center">
               <p className="text-lg font-bold text-foreground tabular-nums">{counts[key]}</p>

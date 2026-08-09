@@ -15,18 +15,18 @@ export default function Login({ onLogin }: LoginProps) {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const ok = await login(email, password);
+    const result = await login(email, password);
     setLoading(false);
-    if (ok) {
+    if (result.ok) {
       onLogin();
     } else {
-      setError("Invalid email or password.");
+      setError(result.error);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-md px-6">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-background p-4">
+      <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <img
             src={`${import.meta.env.BASE_URL}treffin-mark.png`}
@@ -37,7 +37,7 @@ export default function Login({ onLogin }: LoginProps) {
           <h1 className="text-2xl font-bold text-foreground">Admin Panel</h1>
           <p className="text-muted-foreground text-sm mt-1">Treffin · Sign in to continue</p>
         </div>
-        <div className="bg-card border border-border rounded-xl p-6">
+        <div className="bg-card border border-border rounded-xl p-4 sm:p-6">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">Email</label>

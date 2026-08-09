@@ -85,7 +85,7 @@ export function InterestOnboardingModal({ onDone, onSkip }: Props) {
         </div>
 
         <div className="relative px-6 py-5">
-          <div className="grid grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {DOMAINS.map(({ name, emoji }) => {
               const active = selected.has(name);
               return (

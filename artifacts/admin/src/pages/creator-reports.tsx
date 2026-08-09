@@ -102,7 +102,7 @@ export default function CreatorReports() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <h2 className="text-xl font-bold text-foreground">Creator Fairness Reports</h2>
         <div className="flex gap-1 bg-muted/50 rounded-lg p-1">
           {(["pending", "resolved", "all"] as const).map((f) => (

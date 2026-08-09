@@ -9,6 +9,10 @@ async function json(route: Route, body: unknown, status = 200) {
   await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  expect(overflow, `${new URL(page.url()).pathname} horizontal overflow`).toBeLessThanOrEqual(1);
+}
 async function mockAuthenticatedApi(page: Page) {
   await page.route("**/api/**", async (route) => {
     const request = route.request();

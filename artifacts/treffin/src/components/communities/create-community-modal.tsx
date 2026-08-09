@@ -107,7 +107,7 @@ export function CreateCommunityModal({ onClose, onCreated }: Props) {
           {/* Emoji picker */}
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold">Icon</label>
-            <div className="grid grid-cols-6 gap-2">
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {EMOJI_OPTIONS.map(e => (
                 <button
                   key={e}

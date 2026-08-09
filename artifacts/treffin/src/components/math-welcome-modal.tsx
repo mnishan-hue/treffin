@@ -342,7 +342,7 @@ export function MathWelcomeModal() {
 
                   {slide.id === "showdown" && (
                     <motion.div
-                      className="grid grid-cols-4 gap-2"
+                      className="grid grid-cols-2 sm:grid-cols-4 gap-2"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: 0.18 }}

@@ -160,7 +160,7 @@ export function LatexSymbolPicker({ onInsert }: LatexSymbolPickerProps) {
             ))}
           </div>
 
-          <div className="p-2 grid grid-cols-6 gap-1 max-h-48 overflow-y-auto">
+          <div className="p-2 grid grid-cols-4 sm:grid-cols-6 gap-1 max-h-48 overflow-y-auto">
             {SYMBOL_GROUPS[activeGroup].symbols.map((s) => (
               <button
                 key={s.latex}

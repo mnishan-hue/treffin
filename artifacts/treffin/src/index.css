@@ -322,11 +322,23 @@
 }
 
 /* Mobile resilience for user-generated long-form and mathematical content. */
-@media (max-width: 639px) {
-  button, a, input, select, textarea { touch-action: manipulation; }
-  pre, code, .katex-display { max-width: 100%; overflow-x: auto; }
-  [role="dialog"] { max-height: calc(100dvh - 1rem); overflow-y: auto; }
+html, body, #root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: clip;
 }
-@media (prefers-reduced-motion: reduce) {
+
+@media (max-width: 767px) {
+  button, a, input, select, textarea { touch-action: manipulation; }
+  main, section, article, aside, form, fieldset, [role="dialog"] { min-width: 0; max-width: 100%; }
+  img, picture, video, canvas, svg { max-width: 100%; }
+  input, select, textarea { max-width: 100%; }
+  h1, h2, h3, p, li, blockquote, .prose { overflow-wrap: anywhere; }
+  pre, code, .katex-display { max-width: 100%; overflow-x: auto; overscroll-behavior-inline: contain; }
+  table { max-width: 100%; }
+  [role="dialog"] { max-height: calc(100dvh - 1rem); overflow-y: auto; overscroll-behavior: contain; }
+  [data-radix-popper-content-wrapper] { max-width: calc(100vw - 1rem) !important; }
+}@media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }

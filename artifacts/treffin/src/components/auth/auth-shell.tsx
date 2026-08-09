@@ -21,8 +21,8 @@ const FEATURES = [
 export function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="relative flex min-h-[100dvh] overflow-hidden"
-      style={{ background: "#04060f" }}
+      className="relative flex min-h-[100dvh] overflow-hidden bg-background text-foreground"
+
     >
       {/* ── Ambient background ─────────────────────────────────────────── */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
@@ -58,7 +58,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
             position: "absolute",
             inset: 0,
             backgroundImage:
-              "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)",
+              "radial-gradient(hsl(var(--foreground) / 0.06) 1px, transparent 1px)",
             backgroundSize: "32px 32px",
             maskImage:
               "radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%)",
@@ -67,7 +67,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
       </div>
 
       {/* ── Left brand panel (desktop only) ───────────────────────────── */}
-      <div className="relative hidden lg:flex lg:w-[44%] flex-col justify-between p-14 border-r border-white/[0.055]">
+      <div className="relative hidden lg:flex lg:w-[44%] flex-col justify-between p-14 border-r border-border/60">
         {/* Wordmark */}
         <div className="flex items-center gap-3">
           <img
@@ -78,7 +78,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
               filter: "drop-shadow(0 0 14px rgba(139,92,246,0.75))",
             }}
           />
-          <span className="text-lg font-bold tracking-tight text-white">
+          <span className="text-lg font-bold tracking-tight text-foreground">
             Treffin
           </span>
         </div>
@@ -86,7 +86,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         {/* Hero copy */}
         <div>
           <h2
-            className="text-[2.55rem] font-bold leading-[1.15] text-white mb-4"
+            className="text-[2.55rem] font-bold leading-[1.15] text-foreground mb-4"
             style={{ letterSpacing: "-0.02em" }}
           >
             The arena for
@@ -102,7 +102,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
               great minds.
             </span>
           </h2>
-          <p className="text-[#8b98b8] text-[0.88rem] leading-relaxed mb-11 max-w-[320px]">
+          <p className="text-muted-foreground text-[0.88rem] leading-relaxed mb-11 max-w-[320px]">
             Thousands of thinkers debate ideas, earn reputation, and build
             intellectual communities every day on Treffin.
           </p>
@@ -127,10 +127,10 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
                   <Icon style={{ width: 15, height: 15, color: "#818CF8" }} />
                 </div>
                 <div>
-                  <p className="text-white text-[0.82rem] font-semibold">
+                  <p className="text-foreground text-[0.82rem] font-semibold">
                     {title}
                   </p>
-                  <p className="text-[#8b98b8] text-[0.75rem] mt-0.5 leading-relaxed">
+                  <p className="text-muted-foreground text-[0.75rem] mt-0.5 leading-relaxed">
                     {desc}
                   </p>
                 </div>
@@ -140,7 +140,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
         </div>
 
         {/* Footer */}
-        <p className="text-[#8b98b8]/25 text-xs">
+        <p className="text-muted-foreground/50 text-xs">
           © 2026 Treffin. All rights reserved.
         </p>
       </div>
@@ -158,7 +158,7 @@ export function AuthShell({ children }: { children: React.ReactNode }) {
                 filter: "drop-shadow(0 0 20px rgba(139,92,246,0.8))",
               }}
             />
-            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[#8b98b8]/50">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground/70">
               Where Minds Celebrate.
             </span>
           </div>
@@ -227,7 +227,7 @@ export function InputField({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-[0.7rem] font-bold uppercase tracking-widest text-[#8b98b8]/65">
+        <label className="text-[0.7rem] font-bold uppercase tracking-widest text-muted-foreground">
           {label}
         </label>
         {action}
@@ -238,19 +238,19 @@ export function InputField({
 }
 
 export const inputStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.05)",
-  border: "1px solid rgba(255,255,255,0.085)",
+  background: "hsl(var(--input))",
+  border: "1px solid hsl(var(--border))",
 };
 
 export const inputFocusHandlers = {
   onFocus: (e: React.FocusEvent<HTMLInputElement>) => {
     e.currentTarget.style.borderColor = "rgba(79,106,247,0.65)";
-    e.currentTarget.style.background = "rgba(255,255,255,0.075)";
+    e.currentTarget.style.background = "hsl(var(--card))";
     e.currentTarget.style.boxShadow = "0 0 0 3px rgba(79,106,247,0.12)";
   },
   onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
-    e.currentTarget.style.borderColor = "rgba(255,255,255,0.085)";
-    e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+    e.currentTarget.style.borderColor = "hsl(var(--border))";
+    e.currentTarget.style.background = "hsl(var(--input))";
     e.currentTarget.style.boxShadow = "none";
   },
 };
@@ -269,20 +269,20 @@ export function GoogleButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center justify-center gap-3 rounded-xl py-3 font-medium text-white text-sm transition-all disabled:opacity-50"
+      className="flex w-full items-center justify-center gap-3 rounded-xl py-3 font-medium text-foreground text-sm transition-all disabled:opacity-50"
       style={{
-        background: "rgba(255,255,255,0.06)",
-        border: "1px solid rgba(255,255,255,0.11)",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.05)",
+        background: "hsl(var(--card))",
+        border: "1px solid hsl(var(--border))",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.35), inset 0 1px 0 hsl(var(--foreground) / 0.05)",
       }}
       onMouseEnter={(e) => {
         if (!disabled)
           (e.currentTarget as HTMLButtonElement).style.background =
-            "rgba(255,255,255,0.09)";
+            "hsl(var(--muted))";
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLButtonElement).style.background =
-          "rgba(255,255,255,0.06)";
+          "hsl(var(--card))";
       }}
     >
       {loading ? (
@@ -305,14 +305,14 @@ export function Divider() {
     <div className="flex items-center gap-3">
       <div
         className="h-px flex-1"
-        style={{ background: "rgba(255,255,255,0.07)" }}
+        style={{ background: "hsl(var(--border))" }}
       />
-      <span className="text-xs font-semibold text-[#8b98b8]/45 uppercase tracking-widest">
+      <span className="text-xs font-semibold text-muted-foreground/70 uppercase tracking-widest">
         or
       </span>
       <div
         className="h-px flex-1"
-        style={{ background: "rgba(255,255,255,0.07)" }}
+        style={{ background: "hsl(var(--border))" }}
       />
     </div>
   );

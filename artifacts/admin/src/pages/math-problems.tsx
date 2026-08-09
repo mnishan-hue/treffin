@@ -106,7 +106,7 @@ export default function MathProblems() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-foreground">Math Problems</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Review and manage submitted problems and solutions</p>

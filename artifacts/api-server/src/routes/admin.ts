@@ -893,12 +893,13 @@ router.get("/admin/users/:id", async (req, res) => {
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
-    // reputation_events.userId stores Clerk IDs — look up via user.clerkId
-    const repHistory = user.clerkId
+    // Reputation history follows the canonical Better Auth identity with legacy fallback.
+    const userIdentity = user.betterAuthId ?? user.clerkId;
+    const repHistory = userIdentity
       ? await db
           .select()
           .from(reputationEventsTable)
-          .where(eq(reputationEventsTable.userId, user.clerkId))
+          .where(eq(reputationEventsTable.userId, userIdentity))
           .orderBy(desc(reputationEventsTable.createdAt))
           .limit(20)
       : [];
@@ -962,11 +963,12 @@ router.patch("/admin/users/:id/suspend", async (req, res) => {
       reason: reason ?? null,
     });
 
-    // Notify and email the affected user
-    if (updated?.clerkId) {
+    // Notify using the current Better Auth identity, with legacy fallback.
+    const updatedIdentity = updated.betterAuthId ?? updated.clerkId;
+    if (updatedIdentity) {
       try {
         await db.insert(notificationsTable).values({
-          userId: updated.clerkId,
+          userId: updatedIdentity,
           type: isSuspended ? "suspended" : "unsuspended",
           title: isSuspended ? "Your account has been suspended" : "Your account has been reinstated ✅",
           body: isSuspended
@@ -976,28 +978,21 @@ router.patch("/admin/users/:id/suspend", async (req, res) => {
           actorInitials: "TA",
         });
       } catch { /* non-blocking */ }
-      if (isSuspended) {
-        try {
-          const [suspendedUser] = await db
-            .select({ betterAuthId: usersTable.betterAuthId, name: usersTable.name })
-            .from(usersTable)
-            .where(eq(usersTable.id, id))
-            .limit(1);
-          if (suspendedUser?.betterAuthId) {
-            const [baUserRow] = await db
-              .select({ email: baUser.email })
-              .from(baUser)
-              .where(eq(baUser.id, suspendedUser.betterAuthId))
-              .limit(1);
-            if (baUserRow?.email) {
-              const { sendSuspensionEmail } = await import("../lib/email");
-              sendSuspensionEmail(baUserRow.email, suspendedUser.name?.split(" ")[0] ?? "", true, reason).catch(() => {});
-            }
-          }
-        } catch { /* non-blocking */ }
-      }
     }
 
+    if (isSuspended && updated.betterAuthId) {
+      try {
+        const [baUserRow] = await db
+          .select({ email: baUser.email })
+          .from(baUser)
+          .where(eq(baUser.id, updated.betterAuthId))
+          .limit(1);
+        if (baUserRow?.email) {
+          const { sendSuspensionEmail } = await import("../lib/email");
+          sendSuspensionEmail(baUserRow.email, updated.name?.split(" ")[0] ?? "", true, reason).catch(() => {});
+        }
+      } catch { /* non-blocking */ }
+    }
     res.json({ ok: true, isSuspended: updated.isSuspended, suspendedReason: updated.suspendedReason ?? null });
   } catch (err) {
     req.log.error({ err }, "Failed to suspend/unsuspend user");
@@ -1015,13 +1010,14 @@ router.delete("/admin/users/:id", async (req, res) => {
     if (!user) { res.status(404).json({ error: "User not found" }); return; }
 
     // Remove related data — best-effort, non-blocking
+    const userIdentity = user.betterAuthId ?? user.clerkId;
     await Promise.allSettled([
       db.delete(postsTable).where(eq(postsTable.authorId, id)),
-      user.clerkId
-        ? db.delete(reputationEventsTable).where(eq(reputationEventsTable.userId, user.clerkId))
+      userIdentity
+        ? db.delete(reputationEventsTable).where(eq(reputationEventsTable.userId, userIdentity))
         : Promise.resolve(),
-      user.clerkId
-        ? db.delete(notificationsTable).where(eq(notificationsTable.userId, user.clerkId))
+      userIdentity
+        ? db.delete(notificationsTable).where(eq(notificationsTable.userId, userIdentity))
         : Promise.resolve(),
       user.betterAuthId
         ? db.delete(baUser).where(eq(baUser.id, user.betterAuthId))

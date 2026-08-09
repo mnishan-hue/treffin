@@ -60,12 +60,12 @@ export default function SignInPage() {
     <AuthShell>
       {/* Heading */}
       <h1
-        className="text-[1.65rem] font-bold text-white mb-1"
+        className="text-[1.65rem] font-bold text-foreground mb-1"
         style={{ letterSpacing: "-0.02em" }}
       >
         Welcome back
       </h1>
-      <p className="text-[#8b98b8] text-sm mb-8">
+      <p className="text-muted-foreground text-sm mb-8">
         Sign in to your Treffin account
       </p>
 
@@ -117,7 +117,7 @@ export default function SignInPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full rounded-xl px-4 py-3 text-sm text-white placeholder:text-[#8b98b8]/35 outline-none transition-all"
+              className="w-full rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-all"
               style={inputStyle}
               {...inputFocusHandlers}
             />
@@ -142,7 +142,7 @@ export default function SignInPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full rounded-xl px-4 py-3 pr-11 text-sm text-white placeholder:text-[#8b98b8]/35 outline-none transition-all"
+                className="w-full rounded-xl px-4 py-3 pr-11 text-sm text-foreground placeholder:text-muted-foreground/50 outline-none transition-all"
                 style={inputStyle}
                 {...inputFocusHandlers}
               />
@@ -150,7 +150,7 @@ export default function SignInPage() {
                 type="button"
                 tabIndex={-1}
                 onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#8b98b8]/40 hover:text-[#8b98b8]/80 transition-colors"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               >
                 {showPassword ? (
                   <EyeOff className="w-4 h-4" />
@@ -182,7 +182,7 @@ export default function SignInPage() {
           />
         </form>
 
-        <p className="text-center text-sm text-[#8b98b8]">
+        <p className="text-center text-sm text-muted-foreground">
           Don't have an account?{" "}
           <Link
             href="/sign-up"

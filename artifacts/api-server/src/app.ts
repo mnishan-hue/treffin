@@ -4,13 +4,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import rateLimit from "express-rate-limit";
 import { logger } from "./lib/logger";
 import { auth, betterAuthHandler } from "./lib/better-auth";
 import { fromNodeHeaders } from "better-auth/node";
 import router from "./routes";
-import { normalizeOrigin, resolveTrustedFrontendUrl as resolveTrustedUrl } from "./lib/security-policy";
+import { collectTrustedOrigins, normalizeOrigin, resolveTrustedFrontendUrl as resolveTrustedUrl } from "./lib/security-policy";
 
 const app: Express = express();
 
@@ -42,15 +43,14 @@ app.use(
   }),
 );
 
-const corsDomains = process.env.ALLOWED_ORIGINS ?? process.env.REPLIT_DOMAINS ?? "";
-const allowedOrigins = corsDomains
-  .split(",")
-  .map((d) => d.trim())
-  .filter(Boolean)
-  .map((d) => (d.startsWith("http") ? d : `https://${d}`));
-
+const allowedOrigins = collectTrustedOrigins(
+  process.env.ALLOWED_ORIGINS,
+  process.env.REPLIT_DOMAINS,
+  process.env.FRONTEND_URL,
+  process.env.ADMIN_FRONTEND_URL,
+);
 if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  throw new Error('ALLOWED_ORIGINS must be configured in production');
+  throw new Error('At least one trusted frontend origin must be configured in production');
 }
 const trustedOriginSet = new Set(allowedOrigins.map(normalizeOrigin).filter((value): value is string => !!value));
 app.use(
@@ -145,6 +145,7 @@ app.all("/api/auth/*splat", betterAuthHandler);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // ── Better Auth session middleware ────────────────────────────────────────────
 // Extracts the session from either a cookie or an Authorization: Bearer header
@@ -152,6 +153,12 @@ app.use(express.urlencoded({ extended: true }));
 // Non-blocking: if extraction fails, req.betterAuthSession is null and routes
 // treat the request as unauthenticated.
 app.use(async (req, _res, next) => {
+  // Admin authentication uses its own signed HttpOnly cookie and must not
+  // depend on the application user's Better Auth database session.
+  if (req.path.startsWith("/api/admin")) {
+    next();
+    return;
+  }
   try {
     const session = await auth.api.getSession({
       headers: fromNodeHeaders(req.headers),
