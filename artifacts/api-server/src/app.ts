@@ -42,11 +42,6 @@ app.use(
   }),
 );
 
-// Health check — mounted before auth middleware so UptimeRobot / Render always gets 200
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", ts: Date.now() });
-});
-
 const corsDomains = process.env.ALLOWED_ORIGINS ?? process.env.REPLIT_DOMAINS ?? "";
 const allowedOrigins = corsDomains
   .split(",")
@@ -77,6 +72,11 @@ app.use(
     },
   }),
 );
+// Public health check. Keep this after CORS so browser diagnostics from an
+// allowed frontend can read it, while still mounting it before authentication.
+app.get("/health", (_req, res) => {
+  res.json({ status: "ok", ts: Date.now() });
+});
 
 // ── Google OAuth first-party redirect ────────────────────────────────────────
 // The frontend navigates here via window.location.href (top-level navigation)
@@ -91,6 +91,7 @@ app.use(
 // writes, set it on our response (first-party to treffin-api.onrender.com),
 // then redirect the browser to Google. When Google redirects back the cookie
 // is present first-party → state validates → OAuth succeeds.
+
 app.get("/api/auth/signin/social", async (req, res) => {
   const provider = (req.query.provider as string) || "google";
   const callbackURL = resolveTrustedUrl(req.query.callbackURL, process.env.FRONTEND_URL ?? allowedOrigins[0] ?? "http://localhost:3000", allowedOrigins);

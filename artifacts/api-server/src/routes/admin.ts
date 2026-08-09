@@ -75,6 +75,9 @@ function adminCookieOptions() {
     httpOnly: true,
     secure,
     sameSite: (secure ? "none" : "lax") as "none" | "lax",
+    // CHIPS keeps the HttpOnly session usable while the admin UI and API are
+    // hosted on different sites (for example Vercel + Render).
+    partitioned: secure,
     path: "/api/admin",
     maxAge: ADMIN_SESSION_TTL_MS,
   };
