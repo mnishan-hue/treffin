@@ -6,7 +6,7 @@ import { eq, desc, inArray, and, or, sql } from "drizzle-orm";
 import { createNotification } from "../lib/notify";
 import { checkToxicity, detectAiContent } from "../lib/content-moderation";
 import { awardRep } from "./reputation";
-import { debateAcceptsParticipation, isDebateSide, isDebateWinnerSide } from "../lib/security-policy";
+import { debateAcceptsParticipation, isDebateSide, isDebateWinnerSide, validDebateAuthority } from "../lib/security-policy";
 
 const router = Router();
 
@@ -51,7 +51,7 @@ function detectPersonalAttack(text: string): string | null {
 
 function detectSelfPromotion(text: string, authorId: string): boolean {
   const urlPattern = /https?:\/\/[^\s]+/g;
-  const urls = text.match(urlPattern) ?? [];
+  const urls = Array.from(text.matchAll(urlPattern), (match) => match[0]);
   return urls.some((url) => url.includes(`/articles/`) && url.includes(authorId));
 }
 
@@ -64,7 +64,7 @@ function serializeDebate(d: typeof debatesTable.$inferSelect, extra: { viewerCou
     supportPercent: d.supportPercent,
     againstPercent: d.againstPercent,
     participantCount: d.participantCount,
-    isLive: d.isLive,
+    isLive: debateAcceptsParticipation(d),
     imageUrl: d.imageUrl ?? null,
     rank: d.rank ?? null,
     isTrending: d.isTrending,
@@ -266,10 +266,10 @@ router.post("/debates/:id/ping", (req, res) => {
 
 router.post("/debates", async (req, res) => {
   try {
-    const { title, description, category, creatorIsModerator, winnerAuthority, wordLimit } = req.body as {
+    const { title, description, category, creatorIsModerator, winnerAuthority, wordLimit, durationHours } = req.body as {
       title: string; description?: string; category: string;
       creatorIsModerator?: boolean; winnerAuthority?: "creator" | "admin";
-      wordLimit?: number;
+      wordLimit?: number; durationHours?: number;
     };
     const creatorUserId = req.betterAuthSession?.user?.id ?? null;
 
@@ -278,25 +278,50 @@ router.post("/debates", async (req, res) => {
       return;
     }
 
+    const cleanTitle = typeof title === "string" ? title.trim() : "";
+    const cleanDescription = typeof description === "string" ? description.trim() : "";
+    const cleanCategory = typeof category === "string" ? category.trim() : "";
+    const isModerator = creatorIsModerator === true;
+    if (cleanTitle.length < 10 || cleanTitle.length > 240) {
+      res.status(400).json({ error: "Debate title must be between 10 and 240 characters" }); return;
+    }
+    if (cleanDescription.length > 5000) {
+      res.status(400).json({ error: "Description cannot exceed 5000 characters" }); return;
+    }
+    if (!cleanCategory || cleanCategory.length > 100) {
+      res.status(400).json({ error: "A valid category is required" }); return;
+    }
+    if (!validDebateAuthority(isModerator, winnerAuthority)) {
+      res.status(400).json({ error: "Only a neutral creator-moderator may retain winner authority" }); return;
+    }
+    const parsedWordLimit = wordLimit === undefined ? null : Number(wordLimit);
+    if (parsedWordLimit !== null && (!Number.isInteger(parsedWordLimit) || parsedWordLimit < 30 || parsedWordLimit > 1000)) {
+      res.status(400).json({ error: "wordLimit must be an integer between 30 and 1000" }); return;
+    }
+    const parsedDuration = durationHours === undefined ? 168 : Number(durationHours);
+    if (!Number.isInteger(parsedDuration) || parsedDuration < 1 || parsedDuration > 720) {
+      res.status(400).json({ error: "durationHours must be an integer between 1 and 720" }); return;
+    }
     // Ensure the user exists in our DB before creating a debate
     await jitProvisionUser(req.betterAuthSession?.user ?? null);
 
     const [debate] = await db
       .insert(debatesTable)
       .values({
-        title,
-        description,
-        category,
+        title: cleanTitle,
+        description: cleanDescription || null,
+        category: cleanCategory,
         isLive: true,
         creatorUserId: creatorUserId ?? null,
-        creatorIsModerator: !!creatorIsModerator,
-        winnerAuthority: winnerAuthority === "admin" ? "admin" : "creator",
-        wordLimit: wordLimit && wordLimit > 0 ? Math.min(wordLimit, 1000) : null,
+        creatorIsModerator: isModerator,
+        winnerAuthority,
+        wordLimit: parsedWordLimit,
+        endsAt: new Date(Date.now() + parsedDuration * 60 * 60 * 1000),
       })
       .returning();
 
     // Award rep for debate creation (fire-and-forget — don't block the response)
-    awardRep(creatorUserId, "debate_created", `Created debate: ${title.substring(0, 60)}`, debate.id).catch((err: unknown) => {
+    awardRep(creatorUserId, "debate_created", `Created debate: ${cleanTitle.substring(0, 60)}`, debate.id).catch((err: unknown) => {
       req.log.warn({ err, debateId: debate.id }, "Failed to award debate_created reputation");
     });
 
@@ -372,8 +397,8 @@ router.post("/debates/:id/declare-winner", async (req, res) => {
 
     const [debate] = await db.select().from(debatesTable).where(eq(debatesTable.id, id)).limit(1);
     if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
-    if (debate.creatorUserId !== userId) {
-      res.status(403).json({ error: "Only this debate's creator can declare a winner" }); return;
+    if (debate.creatorUserId !== userId || !debate.creatorIsModerator) {
+      res.status(403).json({ error: "Only this debate's neutral creator-moderator can declare a winner" }); return;
     }
     if (debateAcceptsParticipation(debate)) { res.status(409).json({ error: "End the debate before declaring a winner" }); return; }
     if (debate.winnerAuthority === "admin") {
@@ -386,6 +411,9 @@ router.post("/debates/:id/declare-winner", async (req, res) => {
     }
 
     const existing = await db.select().from(debateOutcomesTable).where(eq(debateOutcomesTable.debateId, id)).limit(1);
+    if (existing.length > 0 || debate.winnerStatus !== "undecided") {
+      res.status(409).json({ error: "This debate already has a finalized outcome" }); return;
+    }
     let outcome;
     if (existing.length > 0) {
       [outcome] = await db
@@ -511,17 +539,34 @@ router.post("/debates/:id/report-creator", async (req, res) => {
 
     const [debate] = await db.select().from(debatesTable).where(eq(debatesTable.id, id)).limit(1);
     if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
-    if (!debate.creatorUserId) { res.status(404).json({ error: "This debate has no creator to report" }); return; }
+    const reportedCreatorId = debate.creatorUserId;
+    if (!reportedCreatorId) { res.status(404).json({ error: "This debate has no creator to report" }); return; }
+    if (reportedCreatorId === userId) { res.status(400).json({ error: "You cannot report yourself" }); return; }
 
-    await db.insert(debateCreatorReportsTable).values({
-      debateId: id,
-      creatorUserId: debate.creatorUserId,
-      reporterUserId: userId,
-      reason: reason.trim(),
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${id}, hashtext(${userId}))`);
+      const [existingReport] = await tx
+        .select({ id: debateCreatorReportsTable.id })
+        .from(debateCreatorReportsTable)
+        .where(and(
+          eq(debateCreatorReportsTable.debateId, id),
+          eq(debateCreatorReportsTable.reporterUserId, userId),
+        ))
+        .limit(1);
+      if (existingReport) throw Object.assign(new Error("already_reported"), { code: "ALREADY_REPORTED" });
+      await tx.insert(debateCreatorReportsTable).values({
+        debateId: id,
+        creatorUserId: reportedCreatorId,
+        reporterUserId: userId,
+        reason: reason.trim(),
+      });
     });
 
     res.status(201).json({ ok: true });
   } catch (err) {
+    if ((err as { code?: string })?.code === "ALREADY_REPORTED") {
+      res.status(409).json({ error: "You have already reported this debate creator" }); return;
+    }
     req.log.error({ err }, "Failed to report debate creator");
     res.status(500).json({ error: "Failed to report debate creator" });
   }
@@ -600,6 +645,10 @@ router.post("/debates/:id/vote", async (req, res) => {
         ))
         .limit(1);
       const isNewParticipant = !existingVote;
+      await tx.delete(debateOptOutsTable).where(and(
+        eq(debateOptOutsTable.debateId, id),
+        eq(debateOptOutsTable.userId, actorClerkId),
+      ));
       await tx
         .insert(debateParticipantVotesTable)
         .values({ debateId: id, userId: actorClerkId, side: vote, annotation: annotationText })
@@ -834,6 +883,16 @@ router.post("/debates/:id/comments", async (req, res) => {
     if (!debateAcceptsParticipation(debate)) { res.status(409).json({ error: "This debate is no longer accepting arguments" }); return; }
 
     if (!isReply && !isDebateSide(side)) { res.status(400).json({ error: "side must be support or against" }); return; }
+
+    const [[rulesAck], [optOut], [participantVote]] = await Promise.all([
+      db.select({ id: debateRulesAcksTable.id }).from(debateRulesAcksTable).where(eq(debateRulesAcksTable.userId, actorClerkId)).limit(1),
+      db.select({ id: debateOptOutsTable.id }).from(debateOptOutsTable).where(and(eq(debateOptOutsTable.debateId, debateId), eq(debateOptOutsTable.userId, actorClerkId))).limit(1),
+      db.select({ side: debateParticipantVotesTable.side }).from(debateParticipantVotesTable).where(and(eq(debateParticipantVotesTable.debateId, debateId), eq(debateParticipantVotesTable.userId, actorClerkId))).limit(1),
+    ]);
+    if (!rulesAck) { res.status(428).json({ error: "Acknowledge the Debate Arena rules before participating" }); return; }
+    if (optOut) { res.status(409).json({ error: "Rejoin this debate by voting before posting another argument" }); return; }
+    if (!isReply && !participantVote) { res.status(409).json({ error: "Vote for a side before posting an argument" }); return; }
+    if (!isReply && participantVote?.side !== side) { res.status(409).json({ error: "Your argument must match the side you joined" }); return; }
 
     // Word limit — enforced per debate (set by creator at creation time, replies are exempt)
     if (!isReply && debate.wordLimit && wordCount > debate.wordLimit) {

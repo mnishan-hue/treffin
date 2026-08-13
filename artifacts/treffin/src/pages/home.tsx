@@ -7,7 +7,7 @@ import { ArticleCard } from "@/components/feed/article-card";
 import { DailyQuestionCard } from "@/components/feed/daily-question-card";
 import { KnowledgeCard } from "@/components/feed/knowledge-card";
 import { PostComposer } from "@/components/feed/post-composer";
-import { Zap, Users, X, Trophy, Clock, Send, Crown, MessageSquare, FileText, TrendingUp, Brain, Globe2 } from "lucide-react";
+import { Zap, Users, X, Trophy, Clock, Send, MessageSquare, FileText, TrendingUp, Brain, Globe2 } from "lucide-react";
 import { CategoryPill } from "@/components/debate/category-pill";
 import { CountdownChip } from "@/components/debate/countdown-chip";
 import { InterestOnboardingModal, INTERESTS_STORAGE_KEY } from "@/components/onboarding/interest-onboarding-modal";
@@ -27,13 +27,6 @@ const TABS = [
 
 type Tab = typeof TABS[number]["value"];
 
-const CHALLENGE_FALLBACK = {
-  prompt: "Make the case AGAINST social media in under 300 words. Use first principles. No clichés.",
-  deadline: "Ends Sunday 11:59 PM",
-  totalEntries: 0,
-  prize: "Featured on homepage + Elite Thinkers invite",
-};
-
 /* ── Quick Action Cards ─────────────────────────────────────────────────── */
 const QUICK_ACTIONS = [
   { icon: MessageSquare, emoji: "⚡", label: "Today's Debate", sub: "Join now", href: "/debates", gradient: "from-indigo-500/20 to-card border-indigo-500/30" },
@@ -44,7 +37,7 @@ const QUICK_ACTIONS = [
   { icon: Brain, emoji: "∑", label: "Mathematics", sub: "Solve problems", href: "/math", gradient: "from-violet-500/20 to-card border-violet-500/25" },
 ];
 
-function QuickActionCards({ onTabChange }: { onTabChange: (t: Tab) => void }) {
+function QuickActionCards() {
   return (
     <div className="flex gap-2.5 overflow-x-auto scrollbar-none pb-0.5 -mx-1 px-1">
       {QUICK_ACTIONS.map(({ icon: Icon, emoji, label, sub, href, gradient }) => (
@@ -64,12 +57,21 @@ function QuickActionCards({ onTabChange }: { onTabChange: (t: Tab) => void }) {
 }
 
 /* ── Hero Daily Question Banner ─────────────────────────────────────────── */
+function LoadError({ label, retry }: { label: string; retry: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-red-400/20 bg-card px-4 py-8 text-center" role="alert">
+      <p className="text-sm font-semibold">{label} could not be loaded.</p>
+      <button className="text-xs font-semibold text-primary hover:underline" onClick={retry}>Try again</button>
+    </div>
+  );
+}
 function HeroDailyQuestion() {
   const { data: dailyQuestion, isLoading } = useGetDailyQuestion();
   const { mutateAsync: voteMutation, isPending: isVoting } = useVoteDailyQuestion();
   const [voted, setVoted] = useState<"support" | "against" | null>(null);
   const [liveStats, setLiveStats] = useState<{ support: number; against: number; count: number } | null>(null);
   const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [voteError, setVoteError] = useState<string | null>(null);
   const { isSignedIn } = useSession();
 
   const voteKey = dailyQuestion ? `treffin_daily_vote_${dailyQuestion.id ?? dailyQuestion.question}` : null;
@@ -90,12 +92,23 @@ function HeroDailyQuestion() {
   const handleVote = async (side: "support" | "against") => {
     if (voted || isVoting) return;
     if (!isSignedIn) { setNeedsSignIn(true); setTimeout(() => setNeedsSignIn(false), 3000); return; }
-    setVoted(side);
-    if (voteKey) localStorage.setItem(voteKey, side);
+    setVoteError(null);
     try {
       const result = await voteMutation({ data: { side } });
+      setVoted(side);
+      if (voteKey) localStorage.setItem(voteKey, side);
       setLiveStats({ support: result.supportPercent, against: result.againstPercent, count: result.participantCount });
-    } catch { /* 409 = already voted — local state is correct */ }
+    } catch (error: any) {
+      const status = error?.status ?? error?.response?.status;
+      if (status === 409) {
+        setVoted(side);
+        if (voteKey) localStorage.setItem(voteKey, side);
+      } else {
+        setVoted(null);
+        if (voteKey) localStorage.removeItem(voteKey);
+        setVoteError(status === 401 ? "Please sign in again to vote." : "Your vote was not saved. Please try again.");
+      }
+    }
   };
 
   return (
@@ -180,6 +193,11 @@ function HeroDailyQuestion() {
           </motion.p>
         )}
 
+        {voteError && (
+          <p className="text-[12px] text-red-400 mt-3 text-center bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2" role="alert">
+            {voteError}
+          </p>
+        )}
         {voted && !needsSignIn && (
           <motion.p
             initial={{ opacity: 0, y: 4 }}
@@ -199,135 +217,134 @@ function WeeklyChallengeCard() {
   const [response, setResponse] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const { data: apiChallenge } = useGetWeeklyChallenge();
+  const { data: challenge, isLoading, isError, refetch } = useGetWeeklyChallenge();
   const { mutateAsync: submitChallenge, isPending: isSubmitting } = useSubmitWeeklyChallenge();
   const { isSignedIn } = useSession();
 
-  const prompt = apiChallenge?.question ?? CHALLENGE_FALLBACK.prompt;
-  const deadline = apiChallenge
-    ? `Ends ${new Date(apiChallenge.endDate).toLocaleDateString("en-US", { weekday: "long" })} 11:59 PM`
-    : CHALLENGE_FALLBACK.deadline;
-
-  const winner = apiChallenge?.winnerName ? apiChallenge : null;
-
-  const submitKey = `treffin_weekly_challenge_${prompt}`;
-
+  const submitKey = challenge ? "treffin_weekly_challenge_" + challenge.id : null;
   useEffect(() => {
-    setSubmitted(localStorage.getItem(submitKey) !== null);
+    setSubmitted(!!submitKey && localStorage.getItem(submitKey) !== null);
   }, [submitKey]);
 
+  if (isLoading) return <Skeleton className="w-full h-[260px] rounded-2xl" />;
+  if (isError) {
+    return (
+      <div className="rounded-2xl border border-red-400/20 bg-card p-5 text-center">
+        <p className="font-semibold">Weekly challenge could not be loaded.</p>
+        <button className="mt-3 text-sm text-primary hover:underline" onClick={() => refetch()}>Try again</button>
+      </div>
+    );
+  }
+  if (!challenge) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-5 text-center">
+        <Trophy className="w-7 h-7 text-muted-foreground mx-auto mb-2" />
+        <p className="font-semibold">No weekly challenge is open right now.</p>
+        <p className="text-xs text-muted-foreground mt-1">The next challenge will appear here when its scheduled window begins.</p>
+      </div>
+    );
+  }
+
+  const deadline = new Date(challenge.endDate).toLocaleString(undefined, {
+    weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const winner = challenge.winnerName ? challenge : null;
   const wc = response.trim().split(/\s+/).filter(Boolean).length;
   const pct = Math.min(100, (wc / 300) * 100);
   const overLimit = wc > 300;
 
   const handleSubmit = async () => {
-    if (!response.trim() || overLimit || isSubmitting) return;
-    if (!isSignedIn) { setSubmitError("Sign in to submit your response!"); setTimeout(() => setSubmitError(null), 3000); return; }
+    if (!response.trim() || overLimit || isSubmitting || !submitKey || winner) return;
+    if (!isSignedIn) {
+      setSubmitError("Sign in to submit your response.");
+      return;
+    }
     setSubmitError(null);
     try {
       await submitChallenge({ data: { response: response.trim() } });
       setSubmitted(true);
-      localStorage.setItem(submitKey, response.trim().slice(0, 2000));
-    } catch (err: any) {
-      if (err?.status === 409 || err?.response?.status === 409) {
+      localStorage.setItem(submitKey, "submitted");
+    } catch (error: any) {
+      const message = error?.data?.error ?? error?.message ?? "";
+      if (error?.status === 409 && message.toLowerCase().includes("already submitted")) {
         setSubmitted(true);
         localStorage.setItem(submitKey, "submitted");
       } else {
-        setSubmitError("Submission failed. Please try again.");
+        setSubmitError(message || "Submission failed. Please try again.");
       }
     }
   };
 
   return (
     <div className="bg-gradient-to-br from-primary/12 via-card to-card border border-primary/25 rounded-2xl overflow-hidden">
-      <div className="flex items-center gap-3 px-5 pt-5 pb-4">
-        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary/15 border border-primary/25">
+      <div className="flex items-start gap-3 px-4 sm:px-5 pt-5 pb-4">
+        <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary/15 border border-primary/25 shrink-0">
           <Trophy className="w-5 h-5 text-primary" />
         </div>
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm">Weekly Intellectual Challenge</span>
-            <span className="text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full uppercase tracking-wider">Week {Math.ceil(((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000 + new Date(new Date().getFullYear(), 0, 1).getDay() + 1) / 7)}</span>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-            <Clock className="w-3 h-3" /> {deadline}
+        <div className="min-w-0">
+          <span className="font-bold text-sm">Weekly Intellectual Challenge</span>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+            <Clock className="w-3 h-3 shrink-0" /> <span>Ends {deadline}</span>
           </div>
         </div>
       </div>
 
-      <div className="px-5 pb-2">
+      <div className="px-4 sm:px-5 pb-2">
         <div className="bg-background/50 border border-border/60 rounded-xl p-4">
-          <p className="text-sm font-medium leading-relaxed italic">"{prompt}"</p>
+          <p className="text-sm font-medium leading-relaxed italic break-words">"{challenge.question}"</p>
         </div>
       </div>
 
-      {/* Winner banner */}
       {winner && (
-        <div className="px-5 pb-2 mt-2">
+        <div className="px-4 sm:px-5 pb-4 mt-2">
           <div className="flex items-start gap-3 bg-amber-400/10 border border-amber-400/25 rounded-xl px-4 py-3">
-            <span className="text-xl shrink-0">🏆</span>
+            <Trophy className="w-5 h-5 text-amber-400 shrink-0" />
             <div className="min-w-0">
-              <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-0.5">This Week's Winner</p>
-              <p className="text-sm font-bold text-foreground">{winner.winnerName}</p>
-              {winner.winnerResponse && (
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2 leading-relaxed">"{winner.winnerResponse}"</p>
-              )}
+              <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest">Challenge winner</p>
+              <p className="text-sm font-bold break-words">{winner.winnerName}</p>
+              {winner.winnerResponse && <p className="text-xs text-muted-foreground mt-1 line-clamp-3 break-words">"{winner.winnerResponse}"</p>}
             </div>
           </div>
         </div>
       )}
 
-      <div className="px-5 pb-2 mt-2">
-        <div className="flex items-start gap-1.5 text-xs text-yellow-400 bg-yellow-400/8 border border-yellow-400/20 rounded-lg px-3 py-2">
-          <Crown className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span><strong>Prize:</strong> {CHALLENGE_FALLBACK.prize}</span>
-        </div>
-      </div>
+      {submitError && <p className="mx-4 sm:mx-5 mt-2 text-xs text-red-400 bg-red-400/10 border border-red-400/20 rounded-lg px-3 py-2" role="alert">{submitError}</p>}
 
-      {submitError && (
-        <div className="px-5 pb-0 mt-1">
-          <p className="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">{submitError}</p>
-        </div>
-      )}
-
-      {!submitted ? (
-        <div className="px-5 pb-5 mt-2 flex flex-col gap-2">
+      {!winner && !submitted ? (
+        <div className="px-4 sm:px-5 pb-5 mt-3 flex flex-col gap-2">
           <textarea
-            className="w-full bg-background/40 border border-border/60 rounded-xl p-3 text-sm resize-none outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20 placeholder:text-muted-foreground/60"
-            placeholder="Write your response here..."
-            rows={3}
+            className="w-full min-w-0 bg-background/40 border border-border/60 rounded-xl p-3 text-sm resize-none outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/20"
+            placeholder={isSignedIn ? "Write your response here..." : "Sign in to enter this challenge"}
+            rows={4}
             value={response}
-            onChange={e => setResponse(e.target.value)}
+            onChange={(event) => setResponse(event.target.value)}
             data-testid="input-challenge-response"
           />
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
             <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-              <div className={cn("h-full rounded-full transition-all", overLimit ? "bg-red-500" : pct > 80 ? "bg-orange-500" : "treffin-gradient")} style={{ width: `${pct}%` }} />
+              <div className={cn("h-full rounded-full transition-all", overLimit ? "bg-red-500" : pct > 80 ? "bg-orange-500" : "treffin-gradient")} style={{ width: pct + "%" }} />
             </div>
-            <span className={cn("text-xs font-medium w-16 text-right", overLimit ? "text-red-400" : pct > 80 ? "text-orange-400" : "text-muted-foreground")}>
-              {wc}/300 words
-            </span>
+            <span className={cn("text-xs font-medium sm:w-16 sm:text-right", overLimit ? "text-red-400" : "text-muted-foreground")}>{wc}/300 words</span>
             <button
-              className={cn("flex items-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-full transition-all", response.trim() && !overLimit && !isSubmitting ? "treffin-gradient text-white" : "bg-muted text-muted-foreground cursor-not-allowed")}
+              className={cn("flex items-center justify-center gap-1.5 text-xs font-semibold px-4 py-2 rounded-full transition-all", response.trim() && !overLimit && !isSubmitting ? "treffin-gradient text-white" : "bg-muted text-muted-foreground cursor-not-allowed")}
               onClick={handleSubmit}
               disabled={!response.trim() || overLimit || isSubmitting}
               data-testid="button-submit-challenge"
             >
-              <Send className="w-3.5 h-3.5" /> {isSubmitting ? "Submitting…" : "Submit"}
+              <Send className="w-3.5 h-3.5" /> {isSubmitting ? "Submitting..." : "Submit"}
             </button>
           </div>
         </div>
-      ) : (
-        <div className="px-5 pb-5 mt-2">
+      ) : !winner ? (
+        <div className="px-4 sm:px-5 pb-5 mt-3">
           <div className="flex items-center gap-2 bg-green-400/10 border border-green-400/20 rounded-xl px-4 py-3 text-sm text-green-400 font-medium">
-            <Trophy className="w-4 h-4" /> Entry submitted! Good luck — winners are announced weekly.
+            <Trophy className="w-4 h-4 shrink-0" /> Entry submitted. Good luck!
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
-
 /* ── Stats Ribbon ───────────────────────────────────────────────────────── */
 function StatsRibbon() {
   const { user } = useSession();
@@ -368,7 +385,7 @@ export default function Home() {
 
   const [tab, setTab] = useState<Tab>("for_you");
   const [showScrollTop, setShowScrollTop] = useState(false);
-  const { data: communities, isLoading: communitiesLoading } = useGetCommunities({
+  const { data: communities, isLoading: communitiesLoading, isError: communitiesError, refetch: refetchCommunities } = useGetCommunities({
     query: { queryKey: getGetCommunitiesQueryKey(), staleTime: 120_000, refetchOnWindowFocus: false },
   });
 
@@ -409,15 +426,15 @@ export default function Home() {
   };
 
   const feedParams = { tab } as const;
-  const { data: feedData, isLoading: feedLoading } = useGetFeed(
+  const { data: feedData, isLoading: feedLoading, isError: feedError, refetch: refetchFeed } = useGetFeed(
     feedParams,
     { query: { queryKey: getGetFeedQueryKey(feedParams), staleTime: 30_000, refetchOnMount: true, refetchOnWindowFocus: false } }
   );
-  const { data: debates, isLoading: debatesLoading } = useGetDebates(
+  const { data: debates, isLoading: debatesLoading, isError: debatesError, refetch: refetchDebates } = useGetDebates(
     {},
     { query: { queryKey: getGetDebatesQueryKey({}), staleTime: 60_000, refetchOnWindowFocus: false } },
   );
-  const { data: articles, isLoading: articlesLoading } = useGetArticles(
+  const { data: articles, isLoading: articlesLoading, isError: articlesError, refetch: refetchArticles } = useGetArticles(
     {},
     { query: { queryKey: getGetArticlesQueryKey({}), staleTime: 60_000, refetchOnWindowFocus: false } },
   );
@@ -429,6 +446,8 @@ export default function Home() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  const liveDebates = debates?.filter((debate) => debate.isLive && (!debate.endsAt || new Date(debate.endsAt).getTime() > Date.now())) ?? [];
 
   const filteredFeed = topicFilter
     ? feedData?.filter(p => p.topic?.toLowerCase() === topicFilter.toLowerCase())
@@ -485,7 +504,7 @@ export default function Home() {
             </div>
             <button
               className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground bg-muted/60 hover:bg-muted px-3 py-1.5 rounded-lg transition-colors mr-3 shrink-0"
-              onClick={() => setTab("for_you")}
+              onClick={() => setTab("following")}
               data-testid="button-trending"
             >
               <Zap className="w-3.5 h-3.5 text-yellow-400" /> Trending
@@ -510,12 +529,20 @@ export default function Home() {
               )}
 
               {/* Quick action cards */}
-              <QuickActionCards onTabChange={setTab} />
+              <QuickActionCards />
 
               {/* Hero daily question */}
               <HeroDailyQuestion />
 
-              <PostComposer />
+              {isSignedIn ? (
+                <PostComposer />
+              ) : (
+                <div className="rounded-2xl border border-border bg-card p-4 text-center">
+                  <p className="text-sm font-semibold">Join the conversation</p>
+                  <p className="text-xs text-muted-foreground mt-1">Sign in to publish posts, vote, and save ideas.</p>
+                  <Link href="/sign-in"><button className="mt-3 treffin-gradient text-white text-sm font-semibold px-4 py-2 rounded-full">Sign in</button></Link>
+                </div>
+              )}
 
               <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.05 }}>
                 <WeeklyChallengeCard />
@@ -530,8 +557,12 @@ export default function Home() {
                 <h2 className="font-bold text-base">Live Debates</h2>
                 <Link href="/debates"><span className="text-xs text-primary hover:underline cursor-pointer">View all →</span></Link>
               </div>
-              {debatesLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[130px] rounded-xl" />) : (
-                debates?.slice(0, 8).map((debate, index) => (
+              {debatesLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[130px] rounded-xl" />) : debatesError ? (
+                <LoadError label="Live debates" retry={() => { void refetchDebates(); }} />
+              ) : liveDebates.length === 0 ? (
+                <div className="rounded-xl border border-border bg-card p-8 text-center"><p className="font-semibold">No debates are live right now.</p><Link href="/debates"><span className="text-xs text-primary hover:underline">Browse all debates</span></Link></div>
+              ) : (
+                liveDebates.slice(0, 8).map((debate, index) => (
                   <motion.div key={debate.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
                     <Link href={`/debates/${debate.id}`}>
                       <div className="bg-card border border-border/60 rounded-xl p-4 hover:border-primary/40 cursor-pointer transition-all group">
@@ -566,7 +597,9 @@ export default function Home() {
                 <h2 className="font-bold text-base">Latest Articles</h2>
                 <Link href="/articles"><span className="text-xs text-primary hover:underline cursor-pointer">View all →</span></Link>
               </div>
-              {articlesLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[160px] rounded-xl" />) : (
+              {articlesLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[160px] rounded-xl" />) : articlesError ? (
+                <LoadError label="Articles" retry={() => { void refetchArticles(); }} />
+              ) : (
                 articles?.slice(0, 8).map((article: any, index: number) => (
                   <motion.div key={article.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
                     <ArticleCard post={{ ...article, type: "article" }} />
@@ -585,6 +618,8 @@ export default function Home() {
               </div>
               {communitiesLoading ? (
                 Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-20 w-full rounded-xl" />)
+              ) : communitiesError ? (
+                <LoadError label="Communities" retry={() => { void refetchCommunities(); }} />
               ) : (communities ?? []).slice(0, 6).map((c, i) => {
                 const GRADIENTS = [
                   "from-blue-500/20 to-card border-blue-500/25",
@@ -636,6 +671,8 @@ export default function Home() {
                     <Skeleton className="h-16 w-full" />
                   </div>
                 ))
+              ) : feedError ? (
+                <LoadError label="Your feed" retry={() => { void refetchFeed(); }} />
               ) : !filteredFeed?.length ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-center bg-card border border-border rounded-2xl">
                   <div className="w-14 h-14 rounded-full bg-muted/40 border border-border flex items-center justify-center">

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useCreateArticle, useGetTopics } from "@workspace/api-client-react";
 import { useLocation, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { useAppContext } from "@/context/app-context";
 import { cn } from "@/lib/utils";
 import { MathText } from "@/components/math/math-renderer";
 import { Progress } from "@/components/ui/progress";
@@ -340,7 +339,6 @@ function ArticlePreview({ title, body, imageUrl, selectedTags, peerReview, readT
 /* ── Main page ──────────────────────────────────────────────────── */
 export default function ArticleEditor() {
   const { toast } = useToast();
-  const { triggerRep } = useAppContext();
   const [, setLocation] = useLocation();
   const createArticle = useCreateArticle();
   const { data: topicsData } = useGetTopics();
@@ -534,8 +532,7 @@ export default function ArticleEditor() {
       {
         onSuccess: (article) => {
           clearDraft();
-          triggerRep(25, "article");
-          toast({ title: "Published! +25 rep", description: peerReview ? "Submitted for peer review." : "Your article is now live." });
+          toast({ title: "Published!", description: peerReview ? "Submitted for peer review." : "Your article is now live." });
           setLocation(`/articles/${article.id}`);
         },
         onError: (err: unknown) => {
@@ -659,7 +656,7 @@ export default function ArticleEditor() {
       <div className="min-h-screen flex flex-col bg-background text-foreground">
 
         {/* ── Sticky header ──────────────────────────────────────── */}
-        <header className="min-h-14 sticky top-0 z-20 shrink-0 flex items-center justify-between gap-2 px-2 sm:px-5 py-2 border-b border-border bg-background/95 backdrop-blur-sm">
+        <header className="min-h-14 sticky top-0 z-20 shrink-0 flex items-center justify-between gap-1 sm:gap-2 px-2 sm:px-5 py-2 min-w-0 border-b border-border bg-background/95 backdrop-blur-sm">
           {/* Left: back + breadcrumb */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <Link
@@ -909,7 +906,7 @@ export default function ArticleEditor() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-medium text-foreground leading-tight">Peer Review</div>
-                      <div className="text-xs text-muted-foreground mt-0.5 leading-snug">Allow expert feedback before publish</div>
+                      <div className="text-xs text-muted-foreground mt-0.5 leading-snug">Request expert feedback after publishing</div>
                     </div>
                     <button
                       onClick={() => setPeerReview((p) => !p)}

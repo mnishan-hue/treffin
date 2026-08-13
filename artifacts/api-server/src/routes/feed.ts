@@ -558,29 +558,63 @@ router.post("/posts/:id/comments/:commentId/like", async (req, res) => {
 router.post("/posts/:id/report", async (req, res) => {
   try {
     const postId = Number(req.params.id);
-    if (isNaN(postId)) { res.status(400).json({ error: "Invalid post id" }); return; }
-
-    const userId = req.betterAuthSession?.user?.id ?? null;
-    const { reason } = req.body as { reason?: string };
-
-    const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId)).limit(1);
-    if (!post) { res.status(404).json({ error: "Post not found" }); return; }
-
-    let reporterUserId: number | null = null;
-    if (userId) {
-      const [user] = await db.select().from(usersTable).where(eq(usersTable.betterAuthId, userId)).limit(1);
-      reporterUserId = user?.id ?? null;
+    if (!Number.isInteger(postId) || postId <= 0) {
+      res.status(400).json({ error: "Invalid post id" }); return;
     }
 
-    await db.insert(postReportsTable).values({ postId, reporterUserId, reason: reason ?? null });
+    const authUserId = req.betterAuthSession?.user?.id ?? null;
+    if (!authUserId) {
+      res.status(401).json({ error: "Sign in required" }); return;
+    }
 
-    const newCount = post.reportCount + 1;
-    const shouldFlag = newCount >= 3;
-    await db.update(postsTable)
-      .set({ reportCount: newCount, isFlagged: shouldFlag || post.isFlagged })
-      .where(eq(postsTable.id, postId));
+    const { reason } = req.body as { reason?: string };
+    const cleanReason = typeof reason === "string" ? reason.trim().slice(0, 1000) : null;
+    const reporter = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+    if (!reporter) {
+      res.status(401).json({ error: "User not found" }); return;
+    }
 
-    // 5-report-in-24h threshold: warn user + log for admin
+    const [post] = await db.select().from(postsTable).where(eq(postsTable.id, postId)).limit(1);
+    if (!post) {
+      res.status(404).json({ error: "Post not found" }); return;
+    }
+    if (post.authorId === reporter.id) {
+      res.status(400).json({ error: "You cannot report your own post" }); return;
+    }
+
+    const reportCount = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`post-report:${postId}:${reporter.id}`}))`);
+      const [existing] = await tx
+        .select({ id: postReportsTable.id })
+        .from(postReportsTable)
+        .where(and(
+          eq(postReportsTable.postId, postId),
+          eq(postReportsTable.reporterUserId, reporter.id),
+        ))
+        .limit(1);
+      if (existing) return null;
+
+      await tx.insert(postReportsTable).values({
+        postId,
+        reporterUserId: reporter.id,
+        reason: cleanReason,
+      });
+      const [updated] = await tx
+        .update(postsTable)
+        .set({
+          reportCount: sql`${postsTable.reportCount} + 1`,
+          isFlagged: sql`${postsTable.isFlagged} or ${postsTable.reportCount} + 1 >= 3`,
+        })
+        .where(eq(postsTable.id, postId))
+        .returning({ reportCount: postsTable.reportCount });
+      return updated?.reportCount ?? post.reportCount + 1;
+    });
+
+    if (reportCount === null) {
+      res.status(409).json({ error: "You already reported this post" }); return;
+    }
+
+    // Five distinct reports across an author's posts in 24 hours triggers one warning.
     if (post.authorId) {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const [authorReports24h] = await db
@@ -589,7 +623,7 @@ router.post("/posts/:id/report", async (req, res) => {
         .innerJoin(postsTable, eq(postReportsTable.postId, postsTable.id))
         .where(and(
           eq(postsTable.authorId, post.authorId),
-          gte(postReportsTable.createdAt, twentyFourHoursAgo)
+          gte(postReportsTable.createdAt, twentyFourHoursAgo),
         ));
 
       if ((authorReports24h?.count ?? 0) === 5) {
@@ -611,13 +645,12 @@ router.post("/posts/:id/report", async (req, res) => {
       }
     }
 
-    res.json({ ok: true });
+    res.json({ ok: true, reportCount });
   } catch (err) {
     req.log.error({ err }, "Failed to report post");
     res.status(500).json({ error: "Failed to report post" });
   }
 });
-
 router.delete("/posts/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);

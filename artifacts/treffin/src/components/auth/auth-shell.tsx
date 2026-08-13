@@ -219,15 +219,17 @@ export function InputField({
   label,
   children,
   action,
+  htmlFor,
 }: {
   label: string;
   children: React.ReactNode;
   action?: React.ReactNode;
+  htmlFor?: string;
 }) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <label className="text-[0.7rem] font-bold uppercase tracking-widest text-muted-foreground">
+        <label htmlFor={htmlFor} className="text-[0.7rem] font-bold uppercase tracking-widest text-muted-foreground">
           {label}
         </label>
         {action}

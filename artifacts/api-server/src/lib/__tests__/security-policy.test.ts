@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { battleAcceptsInteraction, collectTrustedOrigins, debateAcceptsParticipation, destructiveDbToolsEnabled, isDebateSide, isDebateWinnerSide, resolveTrustedFrontendUrl } from "../security-policy";
+import { battleAcceptsInteraction, collectTrustedOrigins, debateAcceptsParticipation, destructiveDbToolsEnabled, isDebateSide, isDebateWinnerSide, resolveTrustedFrontendUrl, validDebateAuthority, reputationReference } from "../security-policy";
 
 test("OAuth callbacks are restricted to configured origins", () => {
   const allowed = ["https://thetreffin.com", "https://admin.thetreffin.com"];
@@ -29,6 +29,11 @@ test("debate participation requires an open, unfrozen debate", () => {
   assert.equal(debateAcceptsParticipation({ isLive: false }), false);
   assert.equal(debateAcceptsParticipation({ isLive: true, isFrozen: true }), false);
   assert.equal(debateAcceptsParticipation({ isLive: true, endedAt: new Date() }), false);
+  assert.equal(debateAcceptsParticipation({ isLive: true, endsAt: new Date("2026-01-01T00:00:00Z") }, new Date("2026-01-02T00:00:00Z")), false);
+  assert.equal(debateAcceptsParticipation({ isLive: true, endsAt: new Date("2026-01-03T00:00:00Z") }, new Date("2026-01-02T00:00:00Z")), true);
+  assert.equal(validDebateAuthority(true, "creator"), true);
+  assert.equal(validDebateAuthority(false, "creator"), false);
+  assert.equal(validDebateAuthority(false, "admin"), true);
   assert.equal(isDebateSide("support"), true);
   assert.equal(isDebateSide("other"), false);
 });
@@ -38,4 +43,10 @@ test("debate outcomes and battle interactions enforce lifecycle values", () => {
   assert.equal(battleAcceptsInteraction({ winnerStatus: "undecided" }), true);
   assert.equal(battleAcceptsInteraction({ winnerStatus: "creator_declared" }), false);
   assert.equal(battleAcceptsInteraction({ winnerStatus: "undecided", endedAt: new Date() }), false);
+});
+test("composite reputation references are stable per actor and content", () => {
+  const first = reputationReference(42, "actor-a");
+  assert.equal(first, reputationReference(42, "actor-a"));
+  assert.notEqual(first, reputationReference(42, "actor-b"));
+  assert.ok(first >= 0);
 });

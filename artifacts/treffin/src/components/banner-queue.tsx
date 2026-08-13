@@ -8,7 +8,7 @@ const COOKIE_KEY = "treffin_cookie_consent";
 const INSTALL_KEY = "treffin_pwa_dismissed";
 const PUSH_KEY = "treffin_push_prompted";
 
-const AUTH_ROUTES = ["/", "/sign-in", "/sign-up", "/onboarding"];
+const AUTH_ROUTES = ["/", "/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding"];
 const INSTALL_MIN_MS = 30_000;
 const BETWEEN_MS = 1_500;
 

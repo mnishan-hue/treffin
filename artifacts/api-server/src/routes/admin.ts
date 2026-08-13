@@ -48,17 +48,22 @@ const adminPwHash   = process.env["ADMIN_PASSWORD_HASH"];
 
 const ADMIN_SESSION_COOKIE = "treffin_admin_session";
 const ADMIN_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
-const adminSessionSecret = process.env["ADMIN_SESSION_SECRET"] ?? adminPwHash ?? adminPassword ?? null;
+const configuredAdminSessionSecret = process.env["ADMIN_SESSION_SECRET"];
+// Production must use an independent signing secret. Credential fallback is
+// retained only for local compatibility and is never accepted in production.
+const adminSessionSecret = configuredAdminSessionSecret
+  ?? (process.env.NODE_ENV === "production" ? null : adminPwHash ?? adminPassword ?? null);
+const adminSessionConfigured = Boolean(adminSessionSecret && adminSessionSecret.length >= 32);
 
 function signAdminSession(expiresAt: number, nonce: string): string {
-  if (!adminSessionSecret) throw new Error("Admin session secret is not configured");
+  if (!adminSessionConfigured || !adminSessionSecret) throw new Error("Admin session secret is not configured");
   const payload = `${expiresAt}.${nonce}`;
   const signature = createHmac("sha256", adminSessionSecret).update(payload).digest("hex");
   return `${payload}.${signature}`;
 }
 
 function verifyAdminSession(value: unknown): boolean {
-  if (!adminSessionSecret || typeof value !== "string") return false;
+  if (!adminSessionConfigured || !adminSessionSecret || typeof value !== "string") return false;
   const [expiresRaw, nonce, signature, ...extra] = value.split(".");
   if (extra.length || !expiresRaw || !nonce || !signature) return false;
   const expiresAt = Number(expiresRaw);
@@ -102,8 +107,9 @@ router.post("/admin/login", async (req, res) => {
     if (!email || !password) {
       res.status(400).json({ error: "email and password required" }); return;
     }
-    if (!adminEmail) {
-      res.status(500).json({ error: "Server admin credentials not configured" }); return;
+    res.setHeader("Cache-Control", "no-store");
+    if (!adminEmail || (!adminPwHash && !adminPassword) || !adminSessionConfigured) {
+      res.status(503).json({ error: "Admin authentication is not configured on the server" }); return;
     }
 
     // Case-insensitive, trimmed email comparison to avoid whitespace surprises
@@ -118,8 +124,8 @@ router.post("/admin/login", async (req, res) => {
     } else if (adminPassword) {
       // Plain-text fallback — safe string compare (avoids timingSafeEqual RangeError on length mismatch)
       try {
-        const a = Buffer.from(password.trim());
-        const b = Buffer.from(adminPassword.trim());
+        const a = Buffer.from(password);
+        const b = Buffer.from(adminPassword);
         valid = a.length === b.length && timingSafeEqual(a, b);
       } catch {
         valid = false;
@@ -141,10 +147,12 @@ router.post("/admin/login", async (req, res) => {
 });
 
 router.get("/admin/session", requireAdmin, (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   res.json({ authenticated: true });
 });
 
 router.post("/admin/logout", requireAdmin, (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   res.clearCookie(ADMIN_SESSION_COOKIE, { ...adminCookieOptions(), maxAge: undefined });
   res.json({ ok: true });
 });
@@ -289,86 +297,83 @@ router.post("/admin/debates/:id/outcome", async (req, res) => {
   try {
     const debateId = Number(req.params.id);
     const { winningSide, justification, topSupportCommentId, topOppositionCommentId, overrideReason } = req.body as {
-      winningSide: "support" | "against" | "draw"; justification: string;
+      winningSide?: string; justification?: string;
       topSupportCommentId?: number; topOppositionCommentId?: number; overrideReason?: string;
     };
+    if (!Number.isInteger(debateId) || debateId <= 0) {
+      res.status(400).json({ error: "Invalid debate id" }); return;
+    }
+    if (!winningSide || !["support", "against", "draw"].includes(winningSide)) {
+      res.status(400).json({ error: "winningSide must be support, against, or draw" }); return;
+    }
+    const cleanJustification = justification?.trim() ?? "";
+    if (cleanJustification.length < 10 || cleanJustification.length > 5000) {
+      res.status(400).json({ error: "Justification must be between 10 and 5000 characters" }); return;
+    }
 
-    const existing = await db
-      .select()
-      .from(debateOutcomesTable)
-      .where(eq(debateOutcomesTable.debateId, debateId))
-      .limit(1);
-
-    // Overriding a result the creator themselves declared requires a reason,
-    // so the creator can see why admin changed their ruling.
-    if (existing.length > 0 && existing[0]!.decidedBy === "creator" && !overrideReason?.trim()) {
+    const [[debate], [existing]] = await Promise.all([
+      db.select().from(debatesTable).where(eq(debatesTable.id, debateId)).limit(1),
+      db.select().from(debateOutcomesTable).where(eq(debateOutcomesTable.debateId, debateId)).limit(1),
+    ]);
+    if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
+    if (existing?.decidedBy === "creator" && !overrideReason?.trim()) {
       res.status(400).json({ error: "overrideReason is required to override a creator-declared outcome" }); return;
     }
 
-    if (existing.length > 0) {
-      await db
-        .update(debateOutcomesTable)
-        .set({
-          winningSide, justification, topSupportCommentId, topOppositionCommentId,
-          publishedAt: new Date(), decidedBy: "admin",
-          overrideReason: existing[0]!.decidedBy === "creator" ? overrideReason!.trim() : null,
-        })
-        .where(eq(debateOutcomesTable.debateId, debateId));
-    } else {
-      await db.insert(debateOutcomesTable).values({
-        debateId,
-        winningSide,
-        justification,
-        topSupportCommentId: topSupportCommentId ?? null,
-        topOppositionCommentId: topOppositionCommentId ?? null,
-        decidedBy: "admin",
+    const shouldNotify = !existing || existing.winningSide !== winningSide;
+    const now = new Date();
+    await db.transaction(async (tx) => {
+      if (existing) {
+        await tx.update(debateOutcomesTable).set({
+          winningSide: winningSide as "support" | "against" | "draw",
+          justification: cleanJustification,
+          topSupportCommentId: topSupportCommentId ?? null,
+          topOppositionCommentId: topOppositionCommentId ?? null,
+          publishedAt: now,
+          decidedBy: "admin",
+          overrideReason: existing.decidedBy === "creator" ? overrideReason!.trim() : null,
+        }).where(eq(debateOutcomesTable.debateId, debateId));
+      } else {
+        await tx.insert(debateOutcomesTable).values({
+          debateId,
+          winningSide: winningSide as "support" | "against" | "draw",
+          justification: cleanJustification,
+          topSupportCommentId: topSupportCommentId ?? null,
+          topOppositionCommentId: topOppositionCommentId ?? null,
+          decidedBy: "admin",
+        });
+      }
+      await tx.update(debatesTable).set({
+        isLive: false,
+        endedAt: debate.endedAt ?? now,
+        winnerStatus: "admin_decided",
+      }).where(eq(debatesTable.id, debateId));
+      await tx.insert(modAuditLogTable).values({
+        action: existing ? "admin_update_outcome" : "admin_publish_outcome",
+        targetType: "debate",
+        targetId: debateId,
+        reason: overrideReason?.trim() || null,
       });
-    }
-
-    await db.update(debatesTable).set({ winnerStatus: "admin_decided" }).where(eq(debatesTable.id, debateId));
-
-    await db.insert(modAuditLogTable).values({
-      action: "admin_publish_outcome",
-      targetType: "debate",
-      targetId: debateId,
-      reason: overrideReason?.trim() ?? null,
     });
 
-    // Notify participants on the winning side
-    if (winningSide !== "draw") {
-      try {
-        const [debateRow] = await db
-          .select({ title: debatesTable.title })
-          .from(debatesTable)
-          .where(eq(debatesTable.id, debateId))
-          .limit(1);
-        if (debateRow) {
-          const { debateParticipantVotesTable } = await import("@workspace/db");
-          const winners = await db
-            .select({ userId: debateParticipantVotesTable.userId })
-            .from(debateParticipantVotesTable)
-            .where(
-              and(
-                eq(debateParticipantVotesTable.debateId, debateId),
-                eq(debateParticipantVotesTable.side, winningSide),
-              )
-            );
-          for (const w of winners) {
-            try {
-              await createNotification({
-                targetDbUserId: 0,
-                targetClerkIdOverride: w.userId,
-                actorClerkId: "admin",
-                actorDisplayName: "Treffin Admin",
-                type: "debate",
-                title: "You won the debate! 🏆",
-                body: `The "${debateRow.title.substring(0, 60)}${debateRow.title.length > 60 ? "…" : ""}" debate has ended — your side won!`,
-              }, req.log);
-            } catch { /* non-blocking */ }
-          }
-        }
-      } catch (err) {
-        req.log.error({ err, debateId }, "Failed to send admin winner notifications");
+    if (shouldNotify && winningSide !== "draw") {
+      const winners = await db.select({ userId: debateParticipantVotesTable.userId })
+        .from(debateParticipantVotesTable)
+        .where(and(
+          eq(debateParticipantVotesTable.debateId, debateId),
+          eq(debateParticipantVotesTable.side, winningSide),
+        ));
+      for (const winner of winners) {
+        await awardRep(winner.userId, "debate_won", "Won debate: " + debate.title.substring(0, 60), debateId).catch(() => 0);
+        await createNotification({
+          targetDbUserId: 0,
+          targetClerkIdOverride: winner.userId,
+          actorClerkId: "admin",
+          actorDisplayName: "Treffin Admin",
+          type: "debate",
+          title: "You won the debate!",
+          body: 'The "' + debate.title.substring(0, 60) + '" debate has ended — your side won!',
+        }, req.log).catch(() => undefined);
       }
     }
 
@@ -378,7 +383,6 @@ router.post("/admin/debates/:id/outcome", async (req, res) => {
     res.status(500).json({ error: "Failed to publish outcome" });
   }
 });
-
 // ── Debate creator reports ──────────────────────────────────────────────────
 router.get("/admin/debate-creator-reports", async (req, res) => {
   try {
@@ -422,63 +426,59 @@ router.get("/admin/debate-creator-reports", async (req, res) => {
 router.patch("/admin/debate-creator-reports/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-    const { status, adminNote } = req.body as { status: "dismissed" | "upheld"; adminNote?: string };
-
-    const [report] = await db
-      .update(debateCreatorReportsTable)
-      .set({ status, adminNote: adminNote ?? null, resolvedAt: new Date() })
-      .where(eq(debateCreatorReportsTable.id, id))
-      .returning();
-    if (!report) { res.status(404).json({ error: "Report not found" }); return; }
-
-    if (status === "upheld") {
-      // Revoke the creator's moderator powers on that debate — the report
-      // being upheld means they abused them.
-      await db.update(debatesTable).set({ creatorIsModerator: false }).where(eq(debatesTable.id, report.debateId));
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    const { status, adminNote } = req.body as { status?: string; adminNote?: string };
+    if (status !== "dismissed" && status !== "upheld") {
+      res.status(400).json({ error: "status must be dismissed or upheld" }); return;
+    }
+    if (adminNote && adminNote.length > 5000) {
+      res.status(400).json({ error: "Admin note is too long" }); return;
     }
 
-    await db.insert(modAuditLogTable).values({
-      action: status === "upheld" ? "uphold_creator_report" : "dismiss_creator_report",
-      targetType: "debate",
-      targetId: report.debateId,
-      reason: adminNote ?? null,
+    const [existing] = await db.select().from(debateCreatorReportsTable)
+      .where(eq(debateCreatorReportsTable.id, id)).limit(1);
+    if (!existing) { res.status(404).json({ error: "Report not found" }); return; }
+    if (existing.status !== "pending") { res.status(409).json({ error: "Report has already been resolved" }); return; }
+
+    const report = await db.transaction(async (tx) => {
+      const [updated] = await tx.update(debateCreatorReportsTable)
+        .set({ status, adminNote: adminNote?.trim() || null, resolvedAt: new Date() })
+        .where(and(eq(debateCreatorReportsTable.id, id), eq(debateCreatorReportsTable.status, "pending")))
+        .returning();
+      if (!updated) throw Object.assign(new Error("already_resolved"), { code: "ALREADY_RESOLVED" });
+      if (status === "upheld") {
+        await tx.update(debatesTable).set({ creatorIsModerator: false, winnerAuthority: "admin" })
+          .where(eq(debatesTable.id, updated.debateId));
+      }
+      await tx.insert(modAuditLogTable).values({
+        action: status === "upheld" ? "uphold_creator_report" : "dismiss_creator_report",
+        targetType: "debate",
+        targetId: updated.debateId,
+        reason: adminNote?.trim() || null,
+      });
+      return updated;
     });
 
-    // Notify the creator when their report is upheld so they know why their
-    // moderation powers disappeared.
     if (status === "upheld" && report.creatorUserId) {
-      try {
-        const [debateRow] = await db
-          .select({ title: debatesTable.title })
-          .from(debatesTable)
-          .where(eq(debatesTable.id, report.debateId))
-          .limit(1);
-        const title = debateRow?.title ?? `Debate #${report.debateId}`;
-        const shortTitle = title.length > 60 ? title.substring(0, 60) + "…" : title;
-        await notifyUser(
-          report.creatorUserId,
-          "admin",
-          {
-            type: "creator_report_upheld",
-            title: "Moderation report upheld",
-            body: `A report against your moderation of "${shortTitle}" was reviewed and upheld. Your moderation powers for this debate have been removed.`,
-            actorDisplayName: "Treffin Admin",
-          },
-          req.log,
-        );
-      } catch (err) {
-        req.log.error({ err }, "Failed to notify creator of upheld report");
-      }
+      const [debateRow] = await db.select({ title: debatesTable.title })
+        .from(debatesTable).where(eq(debatesTable.id, report.debateId)).limit(1);
+      await notifyUser(report.creatorUserId, "admin", {
+        type: "creator_report_upheld",
+        title: "Moderation report upheld",
+        body: 'A report against your moderation of "' + (debateRow?.title ?? "this debate") + '" was upheld. Your moderation powers were removed.',
+        actorDisplayName: "Treffin Admin",
+      }, req.log).catch(() => undefined);
     }
 
     res.json({ ok: true });
   } catch (err) {
+    if ((err as { code?: string })?.code === "ALREADY_RESOLVED") {
+      res.status(409).json({ error: "Report has already been resolved" }); return;
+    }
     req.log.error({ err }, "Failed to resolve debate creator report");
     res.status(500).json({ error: "Failed to resolve report" });
   }
 });
-
 router.get("/admin/articles", async (req, res) => {
   try {
     const articles = await db.select().from(articlesTable).orderBy(desc(articlesTable.createdAt));
@@ -738,30 +738,35 @@ router.get("/admin/daily-question", async (req, res) => {
 
 router.post("/admin/daily-question", async (req, res) => {
   try {
-    const { question, imageUrl } = req.body;
+    const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+    const imageUrl = typeof req.body?.imageUrl === "string" ? req.body.imageUrl.trim() : "";
+    if (question.length < 5 || question.length > 1000) {
+      res.status(400).json({ error: "Question must be between 5 and 1000 characters" }); return;
+    }
+    if (imageUrl.length > 2000) {
+      res.status(400).json({ error: "Image URL is too long" }); return;
+    }
 
-    await db
-      .update(dailyQuestionsTable)
-      .set({ isLive: false })
-      .where(eq(dailyQuestionsTable.isLive, true));
-
-    const [created] = await db
-      .insert(dailyQuestionsTable)
-      .values({
-        question,
-        imageUrl: imageUrl ?? "",
-        isLive: true,
-        supportPercent: 50,
-        againstPercent: 50,
-        participantCount: 0,
-      })
-      .returning();
-
-    await db.insert(modAuditLogTable).values({
-      action: "set_daily_question",
-      targetType: "daily_question",
-      targetId: created.id,
-      reason: question,
+    const created = await db.transaction(async (tx) => {
+      await tx.update(dailyQuestionsTable).set({ isLive: false }).where(eq(dailyQuestionsTable.isLive, true));
+      const [row] = await tx
+        .insert(dailyQuestionsTable)
+        .values({
+          question,
+          imageUrl,
+          isLive: true,
+          supportPercent: 50,
+          againstPercent: 50,
+          participantCount: 0,
+        })
+        .returning();
+      await tx.insert(modAuditLogTable).values({
+        action: "set_daily_question",
+        targetType: "daily_question",
+        targetId: row.id,
+        reason: question,
+      });
+      return row;
     });
 
     res.json({
@@ -778,7 +783,6 @@ router.post("/admin/daily-question", async (req, res) => {
     res.status(500).json({ error: "Failed to set daily question" });
   }
 });
-
 router.get("/admin/topics", async (req, res) => {
   try {
     const topics = await db.select().from(topicsTable);
@@ -1123,78 +1127,91 @@ router.get("/admin/review-requests", async (req, res) => {
 });
 
 router.patch("/admin/review-requests/:id", async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid review request id" }); return;
+  }
+  const status = req.body?.status;
+  const reviewerNote = typeof req.body?.reviewerNote === "string" ? req.body.reviewerNote.trim() : null;
+  if (status !== "approved" && status !== "rejected") {
+    res.status(400).json({ error: "status must be 'approved' or 'rejected'" }); return;
+  }
+  if (reviewerNote && reviewerNote.length > 5000) {
+    res.status(400).json({ error: "Reviewer note cannot exceed 5000 characters" }); return;
+  }
+
   try {
-    const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(4, ${id})`);
+      const [existing] = await tx
+        .select()
+        .from(articleReviewRequestsTable)
+        .where(eq(articleReviewRequestsTable.id, id))
+        .limit(1);
+      if (!existing) return { kind: "missing" as const };
+      if (existing.status !== "pending") return { kind: "actioned" as const };
 
-    const { status, reviewerNote } = req.body as { status?: string; reviewerNote?: string };
+      const [article] = await tx
+        .select()
+        .from(articlesTable)
+        .where(eq(articlesTable.id, existing.articleId))
+        .limit(1);
+      if (!article || article.isRemoved || article.status !== "published") {
+        return { kind: "article-missing" as const };
+      }
 
-    if (!status || !["approved", "rejected"].includes(status)) {
-      res.status(400).json({ error: "status must be 'approved' or 'rejected'" }); return;
-    }
-    if (reviewerNote !== undefined && typeof reviewerNote !== "string") {
-      res.status(400).json({ error: "reviewerNote must be a string" }); return;
-    }
+      await tx
+        .update(articleReviewRequestsTable)
+        .set({ status, reviewerNote, updatedAt: new Date() })
+        .where(and(
+          eq(articleReviewRequestsTable.id, id),
+          eq(articleReviewRequestsTable.status, "pending"),
+        ));
+      await tx
+        .update(articlesTable)
+        .set({ isExpertReviewed: status === "approved" })
+        .where(eq(articlesTable.id, article.id));
+      await tx.insert(modAuditLogTable).values({
+        action: status === "approved" ? "approve_article_review" : "reject_article_review",
+        targetType: "article_review_request",
+        targetId: id,
+        reason: reviewerNote,
+      });
+      return { kind: "updated" as const, article };
+    });
 
-    const validStatus = status as "approved" | "rejected";
-
-    const [existing] = await db
-      .select()
-      .from(articleReviewRequestsTable)
-      .where(eq(articleReviewRequestsTable.id, id))
-      .limit(1);
-
-    if (!existing) {
+    if (result.kind === "missing") {
       res.status(404).json({ error: "Review request not found" }); return;
     }
-
-    if (existing.status !== "pending") {
+    if (result.kind === "actioned") {
       res.status(409).json({ error: "Review request has already been actioned" }); return;
     }
-
-    await db
-      .update(articleReviewRequestsTable)
-      .set({ status: validStatus, reviewerNote: reviewerNote ?? null, updatedAt: new Date() })
-      .where(eq(articleReviewRequestsTable.id, id));
-
-    if (validStatus === "approved") {
-      await db
-        .update(articlesTable)
-        .set({ isExpertReviewed: true })
-        .where(eq(articlesTable.id, existing.articleId));
+    if (result.kind === "article-missing") {
+      res.status(409).json({ error: "The related article is no longer available for review" }); return;
     }
 
-    const [article] = await db
-      .select()
-      .from(articlesTable)
-      .where(eq(articlesTable.id, existing.articleId))
-      .limit(1);
+    const notifTitle = status === "approved"
+      ? "Your article review was approved"
+      : "Your article review request was rejected";
+    const notifBody = status === "approved"
+      ? `"${result.article.title}" has received an Expert Reviewed badge.`
+      : `"${result.article.title}"${reviewerNote ? ` — ${reviewerNote}` : ""}`;
+    await createNotification({
+      targetDbUserId: result.article.authorId,
+      actorClerkId: "admin",
+      actorDisplayName: "Treffin Admin",
+      type: "review",
+      title: notifTitle,
+      body: notifBody,
+      batchKey: `article_review:${id}`,
+    }, req.log).catch((err) => req.log.warn({ err, reviewRequestId: id }, "Failed to send article-review notification"));
 
-    if (article) {
-      const notifTitle = validStatus === "approved"
-        ? "Your article was approved for peer review!"
-        : "Your article review request was rejected";
-      const notifBody = validStatus === "approved"
-        ? `"${article.title}" has received an Expert Reviewed badge.`
-        : `"${article.title}"${reviewerNote ? ` — ${reviewerNote}` : ""}`;
-
-      await createNotification({
-        targetDbUserId: article.authorId,
-        actorClerkId: "admin",
-        actorDisplayName: "Treffin Admin",
-        type: "review",
-        title: notifTitle,
-        body: notifBody,
-      }, req.log);
-    }
-
-    res.json({ ok: true });
+    res.json({ ok: true, status });
   } catch (err) {
     req.log.error({ err }, "Failed to action review request");
     res.status(500).json({ error: "Failed to action review request" });
   }
 });
-
 router.get("/admin/weekly-challenge", async (req, res) => {
   try {
     const [challenge] = await db
@@ -1223,28 +1240,32 @@ router.get("/admin/weekly-challenge", async (req, res) => {
 
 router.post("/admin/weekly-challenge", async (req, res) => {
   try {
-    const { question, startDate, endDate } = req.body;
+    const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
+    const startDate = new Date(req.body?.startDate);
+    const endDate = new Date(req.body?.endDate);
+    if (question.length < 10 || question.length > 2000) {
+      res.status(400).json({ error: "Challenge question must be between 10 and 2000 characters" }); return;
+    }
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      res.status(400).json({ error: "Valid start and end dates are required" }); return;
+    }
+    if (endDate <= startDate || endDate <= new Date()) {
+      res.status(400).json({ error: "End date must be after the start date and in the future" }); return;
+    }
 
-    await db
-      .update(weeklyChallengesTable)
-      .set({ isActive: false })
-      .where(eq(weeklyChallengesTable.isActive, true));
-
-    const [challenge] = await db
-      .insert(weeklyChallengesTable)
-      .values({
-        question,
-        startDate: new Date(startDate),
-        endDate: new Date(endDate),
-        isActive: true,
-      })
-      .returning();
-
-    await db.insert(modAuditLogTable).values({
-      action: "set_weekly_challenge",
-      targetType: "weekly_challenge",
-      targetId: challenge.id,
-      reason: question,
+    const challenge = await db.transaction(async (tx) => {
+      await tx.update(weeklyChallengesTable).set({ isActive: false }).where(eq(weeklyChallengesTable.isActive, true));
+      const [row] = await tx
+        .insert(weeklyChallengesTable)
+        .values({ question, startDate, endDate, isActive: true })
+        .returning();
+      await tx.insert(modAuditLogTable).values({
+        action: "set_weekly_challenge",
+        targetType: "weekly_challenge",
+        targetId: row.id,
+        reason: question,
+      });
+      return row;
     });
 
     res.json({
@@ -1259,7 +1280,6 @@ router.post("/admin/weekly-challenge", async (req, res) => {
     res.status(500).json({ error: "Failed to set weekly challenge" });
   }
 });
-
 router.get("/admin/weekly-challenge/submissions", async (req, res) => {
   try {
     const [challenge] = await db
@@ -1309,53 +1329,55 @@ router.get("/admin/weekly-challenge/submissions", async (req, res) => {
 
 router.post("/admin/weekly-challenge/:id/winner", async (req, res) => {
   const id = Number(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-  const { submissionId, userId, userName, userAvatar, response } = req.body as {
-    submissionId: number;
-    userId: string;
-    userName: string;
-    userAvatar: string | null;
-    response: string;
-  };
+  const submissionId = Number(req.body?.submissionId);
+  if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(submissionId) || submissionId <= 0) {
+    res.status(400).json({ error: "Valid challenge and submission IDs are required" }); return;
+  }
 
   try {
-    const [challenge] = await db
-      .update(weeklyChallengesTable)
-      .set({
-        winnerUserId: userId,
-        winnerName: userName,
-        winnerAvatar: userAvatar ?? null,
-        winnerResponse: response,
-      })
-      .where(eq(weeklyChallengesTable.id, id))
-      .returning();
+    const [[challenge], [submission]] = await Promise.all([
+      db.select().from(weeklyChallengesTable).where(eq(weeklyChallengesTable.id, id)).limit(1),
+      db.select().from(weeklyChallengeSubmissionsTable).where(and(
+        eq(weeklyChallengeSubmissionsTable.id, submissionId),
+        eq(weeklyChallengeSubmissionsTable.challengeId, id),
+      )).limit(1),
+    ]);
+    if (!challenge) { res.status(404).json({ error: "Challenge not found" }); return; }
+    if (!submission) { res.status(404).json({ error: "Submission does not belong to this challenge" }); return; }
+    if (challenge.winnerUserId) { res.status(409).json({ error: "A winner has already been finalized for this challenge" }); return; }
 
-    if (!challenge) {
-      res.status(404).json({ error: "Challenge not found" }); return;
-    }
-
-    await awardRep(userId, "weekly_challenge_won", "Won the weekly intellectual challenge", id);
-
-    await db.insert(modAuditLogTable).values({
-      action: "award_rep_challenge_winner",
-      targetType: "weekly_challenge",
-      targetId: id,
-      reason: `Winner: ${userName} (userId: ${userId})`,
+    const updated = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(weeklyChallengesTable)
+        .set({
+          winnerUserId: submission.userId,
+          winnerName: submission.userName,
+          winnerAvatar: submission.userAvatar ?? null,
+          winnerResponse: submission.response,
+        })
+        .where(eq(weeklyChallengesTable.id, id))
+        .returning();
+      await tx.insert(modAuditLogTable).values({
+        action: "award_rep_challenge_winner",
+        targetType: "weekly_challenge",
+        targetId: id,
+        reason: "Winner selected from submission #" + submission.id,
+      });
+      return row;
     });
 
+    await awardRep(submission.userId, "weekly_challenge_won", "Won the weekly intellectual challenge", id);
     res.json({
-      id: challenge.id,
-      winnerUserId: challenge.winnerUserId,
-      winnerName: challenge.winnerName,
-      winnerResponse: challenge.winnerResponse,
+      id: updated.id,
+      winnerUserId: updated.winnerUserId,
+      winnerName: updated.winnerName,
+      winnerResponse: updated.winnerResponse,
     });
   } catch (err) {
     req.log.error({ err }, "Failed to set weekly challenge winner");
     res.status(500).json({ error: "Failed to set winner" });
   }
 });
-
 router.get("/admin/daily-question/votes", async (req, res) => {
   try {
     const [question] = await db

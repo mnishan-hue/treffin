@@ -188,7 +188,10 @@ export default function App() {
   useEffect(() => {
     let active = true;
     void hasAdminSession().then((valid) => { if (active) setAuthed(valid); });
-    const expire = () => setAuthed(false);
+    const expire = () => {
+      queryClient.clear();
+      setAuthed(false);
+    };
     window.addEventListener("admin-session-expired", expire);
     return () => {
       active = false;
@@ -203,7 +206,10 @@ export default function App() {
   if (!authed) {
     return (
       <QueryClientProvider client={queryClient}>
-        <Login onLogin={() => setAuthed(true)} />
+        <Login onLogin={() => {
+          queryClient.clear();
+          setAuthed(true);
+        }} />
         <Toaster position="top-right" richColors />
       </QueryClientProvider>
     );

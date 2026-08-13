@@ -7,7 +7,7 @@ import {
   weeklyChallengeSubmissionsTable,
   usersTable,
 } from "@workspace/db";
-import { desc, eq, sql, and } from "drizzle-orm";
+import { desc, eq, sql, and, gte, lte } from "drizzle-orm";
 import { awardRep } from "./reputation";
 import { jitProvisionUser } from "../lib/jit-provision";
 
@@ -123,10 +123,15 @@ router.post("/stats/daily-question/vote", async (req, res) => {
 
 router.get("/stats/weekly-challenge", async (req, res) => {
   try {
+    const now = new Date();
     const [challenge] = await db
       .select()
       .from(weeklyChallengesTable)
-      .where(eq(weeklyChallengesTable.isActive, true))
+      .where(and(
+        eq(weeklyChallengesTable.isActive, true),
+        lte(weeklyChallengesTable.startDate, now),
+        gte(weeklyChallengesTable.endDate, now),
+      ))
       .orderBy(desc(weeklyChallengesTable.createdAt))
       .limit(1);
 
@@ -157,20 +162,28 @@ router.post("/stats/weekly-challenge/submit", async (req, res) => {
   await jitProvisionUser(req.betterAuthSession?.user ?? null);
 
   const { response } = req.body as { response: string };
-  if (!response?.trim()) {
-    res.status(400).json({ error: "Response is required" }); return;
+  if (!response?.trim() || response.trim().length > 5000) {
+    res.status(400).json({ error: "Response is required and cannot exceed 5000 characters" }); return;
   }
 
   try {
+    const now = new Date();
     const [challenge] = await db
       .select()
       .from(weeklyChallengesTable)
-      .where(eq(weeklyChallengesTable.isActive, true))
+      .where(and(
+        eq(weeklyChallengesTable.isActive, true),
+        lte(weeklyChallengesTable.startDate, now),
+        gte(weeklyChallengesTable.endDate, now),
+      ))
       .orderBy(desc(weeklyChallengesTable.createdAt))
       .limit(1);
 
     if (!challenge) {
-      res.status(404).json({ error: "No active weekly challenge" }); return;
+      res.status(409).json({ error: "There is no challenge currently accepting submissions" }); return;
+    }
+    if (challenge.winnerUserId) {
+      res.status(409).json({ error: "This challenge is closed because a winner has been selected" }); return;
     }
 
     const [existing] = await db
@@ -205,8 +218,6 @@ router.post("/stats/weekly-challenge/submit", async (req, res) => {
         response: response.trim(),
       })
       .returning();
-
-    await awardRep(userId, "weekly_challenge_won", "Submitted weekly challenge response", challenge.id);
 
     res.json({
       id: submission.id,

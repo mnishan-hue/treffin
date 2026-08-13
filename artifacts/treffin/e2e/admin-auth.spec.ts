@@ -34,3 +34,24 @@ test("admin login establishes an HttpOnly session and loads guarded data", async
     }
   }
 });
+test("expired admin API session clears the shell and returns to login", async ({ page }) => {
+  await page.route("**/api/admin/session", (route) => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ authenticated: true }),
+  }));
+  await page.route("**/api/admin/stats", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "Unauthorized" }),
+  }));
+  await page.route("**/api/admin/notifications/counts", (route) => route.fulfill({
+    status: 401,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "Unauthorized" }),
+  }));
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Admin Panel" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign In" })).toBeVisible();
+});

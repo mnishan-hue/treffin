@@ -45,12 +45,25 @@ app.use(
 
 const allowedOrigins = collectTrustedOrigins(
   process.env.ALLOWED_ORIGINS,
+  process.env.BETTER_AUTH_TRUSTED_ORIGINS,
   process.env.REPLIT_DOMAINS,
   process.env.FRONTEND_URL,
   process.env.ADMIN_FRONTEND_URL,
 );
-if (process.env.NODE_ENV === 'production' && allowedOrigins.length === 0) {
-  throw new Error('At least one trusted frontend origin must be configured in production');
+if (process.env.NODE_ENV === 'production') {
+  if (allowedOrigins.length === 0) {
+    throw new Error('At least one trusted frontend origin must be configured in production');
+  }
+  for (const [name, value] of [
+    ["BETTER_AUTH_BASE_URL", process.env.BETTER_AUTH_BASE_URL],
+    ["FRONTEND_URL", process.env.FRONTEND_URL],
+    ["ADMIN_FRONTEND_URL", process.env.ADMIN_FRONTEND_URL],
+  ] as const) {
+    const origin = value ? normalizeOrigin(value) : null;
+    if (!origin || !origin.startsWith("https://")) {
+      throw new Error(`${name} must be configured as an absolute HTTPS origin in production`);
+    }
+  }
 }
 const trustedOriginSet = new Set(allowedOrigins.map(normalizeOrigin).filter((value): value is string => !!value));
 app.use(
@@ -95,6 +108,10 @@ app.get("/health", (_req, res) => {
 app.get("/api/auth/signin/social", async (req, res) => {
   const provider = (req.query.provider as string) || "google";
   const callbackURL = resolveTrustedUrl(req.query.callbackURL, process.env.FRONTEND_URL ?? allowedOrigins[0] ?? "http://localhost:3000", allowedOrigins);
+
+  if (provider !== "google" || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.redirect(`${callbackURL}/sign-in?error=OAuthSignin`);
+  }
 
   try {
     // auth.api.signInSocial is the typed server-side API — avoids synthetic
@@ -181,6 +198,14 @@ const globalLimiter = rateLimit({
   message: { error: "Too many requests, please try again later." },
 });
 
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many sign-in attempts. Please wait 15 minutes and try again." },
+});
 const writeLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
@@ -204,6 +229,7 @@ function writeOnly(limiter: ReturnType<typeof rateLimit>) {
 // Better Auth session endpoints are called frequently by the client SDK
 // (useSession in every mounted component) and must not consume the shared
 // quota.  They have their own security model (signed cookies, CSRF tokens).
+app.use("/api/admin/login", adminLoginLimiter);
 app.use("/api", (req, res, next) => {
   if (req.path.startsWith("/auth/")) return next();
   return globalLimiter(req, res, next);

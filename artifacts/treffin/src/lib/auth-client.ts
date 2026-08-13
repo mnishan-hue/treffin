@@ -1,4 +1,5 @@
 import { createAuthClient } from "better-auth/react";
+import { twoFactorClient } from "better-auth/client/plugins";
 import { useContext } from "react";
 import { SessionContext } from "./session-context";
 
@@ -7,11 +8,35 @@ import { SessionContext } from "./session-context";
 // set – in that case the API is served from the same origin as the frontend.
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "")
   || (typeof window !== "undefined" ? window.location.origin : "");
+const AUTH_TOKEN_KEY = "treffin_auth_token";
+
+function readBearerToken(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  return window.sessionStorage.getItem(AUTH_TOKEN_KEY) ?? undefined;
+}
+
+function storeBearerToken(token: string | null): void {
+  if (typeof window === "undefined") return;
+  if (token) window.sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+  else window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+}
 
 export const authClient = createAuthClient({
   baseURL: `${apiOrigin}/api/auth`,
+  plugins: [twoFactorClient()],
   fetchOptions: {
     credentials: "include",
+    // The API is currently hosted on a different site. Cookies remain the
+    // primary transport, with a tab-scoped bearer fallback for browsers that
+    // block third-party cookies.
+    auth: { type: "Bearer", token: readBearerToken },
+    onResponse: ({ response, request }) => {
+      const issuedToken = response.headers.get("set-auth-token");
+      if (issuedToken) storeBearerToken(issuedToken);
+      const requestUrl = String(request.url);
+      if (response.ok && requestUrl.includes("/sign-out")) storeBearerToken(null);
+      if (response.status === 401 && requestUrl.includes("/get-session")) storeBearerToken(null);
+    },
   },
 });
 

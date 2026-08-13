@@ -1,23 +1,30 @@
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { bearer } from "better-auth/plugins/bearer";
+import { twoFactor } from "better-auth/plugins/two-factor";
 import { db } from "@workspace/db";
 import {
   baUser,
   baSession,
   baAccount,
   baVerification,
+  baTwoFactor,
   usersTable,
 } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { toNodeHandler } from "better-auth/node";
 import { jitProvisionUser } from "./jit-provision";
 import { collectTrustedOrigins } from "./security-policy";
+import { sendLoginOtpEmail, sendPasswordResetEmail } from "./email";
+import { logger } from "./logger";
 
 const authSecret = process.env.BETTER_AUTH_SECRET ?? process.env.SESSION_SECRET;
 if (!authSecret || authSecret.length < 32) {
   throw new Error("BETTER_AUTH_SECRET (or SESSION_SECRET) must contain at least 32 characters");
 }
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const googleOAuthEnabled = Boolean(googleClientId && googleClientSecret);
 
 /**
  * Merge the explicit auth/CORS allowlists with the canonical frontend URLs.
@@ -31,6 +38,25 @@ if (!authSecret || authSecret.length < 32) {
     process.env.ADMIN_FRONTEND_URL,
   );
 }
+
+async function ensureEmailLoginOtp(userId: string): Promise<void> {
+  try {
+    await db.update(baUser)
+      .set({ twoFactorEnabled: true })
+      .where(eq(baUser.id, userId));
+    await db.insert(baTwoFactor).values({
+      id: `email-otp-${userId}`,
+      secret: "email-otp-only",
+      backupCodes: "[]",
+      userId,
+      verified: true,
+    }).onConflictDoNothing();
+  } catch (err) {
+    logger.error({ err, userId }, "Failed to enroll user in email login OTP");
+    throw err;
+  }
+}
+
 export const auth = betterAuth({
   // Use BETTER_AUTH_SECRET if set; fall back to SESSION_SECRET so the
   // existing secret already in Replit works without extra provisioning.
@@ -53,21 +79,27 @@ export const auth = betterAuth({
       session: baSession,
       account: baAccount,
       verification: baVerification,
+      twoFactor: baTwoFactor,
     },
   }),
 
   emailAndPassword: {
     enabled: true,
+    minPasswordLength: 8,
+    revokeSessionsOnPasswordReset: true,
+    sendResetPassword: async ({ user, url }) => {
+      await sendPasswordResetEmail(user.email, user.name, url);
+    },
   },
 
   // Google OAuth — credentials come from GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
   // set in the Render environment. Leave both empty to disable Google auth.
-  socialProviders: {
+  socialProviders: googleOAuthEnabled ? {
     google: {
-      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      clientId: googleClientId!,
+      clientSecret: googleClientSecret!,
     },
-  },
+  } : {},
 
   // When OAuth fails, redirect to the frontend sign-in page with ?error=...
   // IMPORTANT: Better Auth v1.6.x uses onAPIError.errorURL for this — the
@@ -117,13 +149,32 @@ export const auth = betterAuth({
 
   advanced: {
     defaultCookieAttributes: {
-      sameSite: "none",
-      secure: true,
+      // Cross-site production deployments need SameSite=None + Secure, while
+      // local HTTP development must not emit Secure cookies or sign-in breaks.
+      sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+      secure: process.env.NODE_ENV === "production",
       httpOnly: true,
     },
   },
 
   plugins: [
+    twoFactor({
+      issuer: "Treffin",
+      twoFactorCookieMaxAge: 10 * 60,
+      accountLockout: {
+        enabled: true,
+        maxFailedAttempts: 5,
+        durationSeconds: 15 * 60,
+      },
+      totpOptions: { disable: true },
+      otpOptions: {
+        period: 5,
+        digits: 6,
+        allowedAttempts: 5,
+        storeOTP: "hashed",
+        sendOTP: async ({ user, otp }) => sendLoginOtpEmail(user.email, user.name, otp),
+      },
+    }),
     // Converts "Authorization: Bearer <session-token>" to a session cookie
     // so the frontend's existing fetch pattern works without change.
     bearer(),
@@ -135,6 +186,7 @@ export const auth = betterAuth({
         // When a new BA user is created, auto-provision their Treffin profile
         // and send the welcome email. This fires reliably for every sign-up.
         after: async (user) => {
+          await ensureEmailLoginOtp(user.id);
           await jitProvisionUser(user);
         },
       },

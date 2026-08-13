@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import { logger } from "./logger";
+import { buildLoginOtpEmail, buildProfessionalWelcomeEmail } from "./email-branding";
 
 let _resend: Resend | null = null;
 function getResend(): Resend {
@@ -230,11 +231,13 @@ export async function sendWelcomeEmail(email: string, firstName: string): Promis
     return;
   }
   try {
+    const welcome = buildProfessionalWelcomeEmail(firstName);
     const { error } = await getResend().emails.send({
       from: FROM_EMAIL,
       to: email,
       subject: "Welcome to Treffin — Where Minds Debate 🧠",
-      html: buildWelcomeEmail(firstName),
+      html: welcome.html,
+      text: welcome.text,
     });
     if (error) {
       logger.error({ error }, "Failed to send welcome email via Resend");
@@ -244,4 +247,71 @@ export async function sendWelcomeEmail(email: string, firstName: string): Promis
   } catch (err) {
     logger.error({ err }, "Exception sending welcome email");
   }
+}
+
+function escapeEmailHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] ?? character);
+}
+
+export async function sendLoginOtpEmail(
+  email: string,
+  displayName: string,
+  otp: string,
+): Promise<void> {
+  if (!process.env.RESEND_API_KEY) {
+    logger.error("RESEND_API_KEY not set - login OTP email cannot be sent");
+    throw new Error("Login email service is not configured");
+  }
+
+  const message = buildLoginOtpEmail(displayName, otp);
+  const { error } = await getResend().emails.send({
+    from: FROM_EMAIL,
+    to: email,
+    subject: `${otp} is your Treffin sign-in code`,
+    html: message.html,
+    text: message.text,
+  });
+
+  if (error) {
+    logger.error({ error }, "Failed to send login OTP via Resend");
+    throw new Error("Login email provider rejected the OTP request");
+  }
+  logger.info({ email }, "Login OTP email sent");
+}
+
+export async function sendPasswordResetEmail(
+  email: string,
+  displayName: string,
+  resetUrl: string,
+): Promise<void> {
+  if (!process.env.RESEND_API_KEY) {
+    logger.warn("RESEND_API_KEY not set - password reset email was not sent");
+    return;
+  }
+  const name = escapeEmailHtml(displayName?.trim() || "there");
+  const safeUrl = escapeEmailHtml(resetUrl);
+  const { error } = await getResend().emails.send({
+    from: FROM_EMAIL,
+    to: email,
+    subject: "Reset your Treffin password",
+    html: `<!doctype html><html><body style="margin:0;padding:32px;background:${BG};font-family:Arial,sans-serif;color:${TEXT_PRIMARY}">
+      <table role="presentation" width="100%"><tr><td align="center">
+        <table role="presentation" width="520" style="max-width:100%;background:${CARD_BG};border:1px solid ${BORDER};border-radius:16px">
+          <tr><td style="padding:36px">
+            <h1 style="margin:0 0 16px;font-size:24px">Reset your password</h1>
+            <p style="color:${TEXT_SECONDARY};line-height:1.6">Hi ${name}, use the secure link below to choose a new Treffin password. The link expires in one hour.</p>
+            <p style="margin:28px 0"><a href="${safeUrl}" style="background:${ACCENT2};color:#fff;text-decoration:none;padding:13px 22px;border-radius:10px;font-weight:700">Reset password</a></p>
+            <p style="color:${TEXT_MUTED};font-size:13px;line-height:1.5">If you did not request this, you can safely ignore this email.</p>
+          </td></tr>
+        </table>
+      </td></tr></table>
+    </body></html>`,
+  });
+  if (error) throw new Error(`Password reset email provider rejected the request: ${error.message}`);
 }

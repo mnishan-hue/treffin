@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { reputationEventsTable, usersTable, notificationsTable, appSettingsTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Elite Thinker threshold — loaded from DB at startup, cached in memory.
@@ -60,14 +60,12 @@ export const REP_VALUES: Record<string, number> = {
 
 function titleForScore(score: number): string {
   const elite = _eliteThreshold;
-  // Tiers below Elite Thinker are evenly distributed at 10%/30%/60% of the threshold.
-  if (score >= elite)              return "Elite Thinker";
+  if (score >= elite) return "Elite Thinker";
   if (score >= Math.floor(elite * 0.6)) return "Intellectual";
   if (score >= Math.floor(elite * 0.3)) return "Scholar";
   if (score >= Math.floor(elite * 0.1)) return "Thinker";
   return "Novice";
 }
-
 export async function awardRep(
   userId: string,
   eventType: string,
@@ -75,9 +73,30 @@ export async function awardRep(
   referenceId?: number
 ) {
   const points = REP_VALUES[eventType] ?? 5;
+  const idempotentEvents = new Set([
+    "post_created", "article_created", "article_liked", "debate_created", "debate_joined",
+    "debate_won", "daily_question_voted", "weekly_challenge_won",
+    "community_joined", "comment_posted", "content_saved",
+    "profile_completed", "long_comment",
+  ]);
+  let awarded = false;
   // Both writes are in a transaction so the event log and the denormalized
   // leaderboard score are always consistent — neither can succeed without the other.
   await db.transaction(async (tx) => {
+    if (referenceId !== undefined && idempotentEvents.has(eventType)) {
+      const lockKey = [userId, eventType, referenceId].join(":");
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+      const [existing] = await tx
+        .select({ id: reputationEventsTable.id })
+        .from(reputationEventsTable)
+        .where(and(
+          eq(reputationEventsTable.userId, userId),
+          eq(reputationEventsTable.eventType, eventType as any),
+          eq(reputationEventsTable.referenceId, referenceId),
+        ))
+        .limit(1);
+      if (existing) return;
+    }
     await tx.insert(reputationEventsTable).values({
       userId,
       eventType: eventType as any,
@@ -85,6 +104,7 @@ export async function awardRep(
       description,
       referenceId: referenceId ?? null,
     });
+    awarded = true;
     const [updated] = await tx
       .update(usersTable)
       .set({ reputationScore: sql`${usersTable.reputationScore} + ${points}` })
@@ -98,6 +118,7 @@ export async function awardRep(
         .where(eq(usersTable.betterAuthId, userId));
     }
   });
+  if (!awarded) return 0;
   // Fire-and-forget: notify the user of their rep gain (direct insert — no actor, self-event)
   db.insert(notificationsTable).values({
     userId,

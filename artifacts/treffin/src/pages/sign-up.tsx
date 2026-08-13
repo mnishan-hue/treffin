@@ -99,8 +99,9 @@ export default function SignUpPage() {
 
         {/* Form */}
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <InputField label="Full name">
+          <InputField label="Full name" htmlFor="sign-up-name">
             <input
+              id="sign-up-name"
               required
               type="text"
               value={name}
@@ -112,8 +113,9 @@ export default function SignUpPage() {
             />
           </InputField>
 
-          <InputField label="Email">
+          <InputField label="Email" htmlFor="sign-up-email">
             <input
+              id="sign-up-email"
               required
               type="email"
               value={email}
@@ -125,9 +127,10 @@ export default function SignUpPage() {
             />
           </InputField>
 
-          <InputField label="Password">
+          <InputField label="Password" htmlFor="sign-up-password">
             <div className="relative">
               <input
+                id="sign-up-password"
                 required
                 minLength={8}
                 type={showPassword ? "text" : "password"}

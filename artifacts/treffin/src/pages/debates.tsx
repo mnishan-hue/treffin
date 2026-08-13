@@ -30,10 +30,11 @@ export default function Debates() {
   const [wantsModerator, setWantsModerator] = useState<boolean | null>(null);
   const [winnerAuthority, setWinnerAuthority] = useState<"creator" | "admin">("creator");
   const [wordLimit, setWordLimit] = useState<number>(0); // 0 = no limit
+  const [durationHours, setDurationHours] = useState(168);
 
   const openCreate = () => {
     setNewTitle(""); setNewDesc(""); setNewCat("Artificial Intelligence");
-    setWantsModerator(null); setWinnerAuthority("creator"); setWordLimit(0);
+    setWantsModerator(null); setWinnerAuthority("creator"); setWordLimit(0); setDurationHours(168);
     setCreateStep("details");
     setShowCreate(true);
   };
@@ -48,6 +49,7 @@ export default function Debates() {
           category: newCat,
           creatorIsModerator: isMod,
           winnerAuthority: isMod ? winnerAuthority : "admin",
+          durationHours,
           ...(wordLimit > 0 ? { wordLimit } : {}),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } as any },
@@ -274,6 +276,32 @@ export default function Debates() {
                       </div>
                     )}
 
+                    <div className="flex flex-col gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-foreground">Debate duration</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">The arena closes automatically at the selected time.</p>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { value: 24, label: "1 day" },
+                          { value: 72, label: "3 days" },
+                          { value: 168, label: "7 days" },
+                          { value: 336, label: "14 days" },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setDurationHours(option.value)}
+                            className={cn(
+                              "text-xs font-semibold px-3 py-2 rounded-lg border transition-all",
+                              durationHours === option.value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40",
+                            )}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     {/* Word limit */}
                     <div className="flex flex-col gap-2">
                       <div>

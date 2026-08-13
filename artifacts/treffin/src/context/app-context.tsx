@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { useSession } from "@/lib/auth-client";
 export type SavedItem = {
   id: number;
@@ -13,11 +13,11 @@ export type SavedItem = {
 export type RepEvent = { id: number; points: number; label: string; x: number };
 
 interface AppContextType {
-  savedIds: Set<number>;
+  savedIds: Set<string>;
   savedItems: SavedItem[];
   toggleSaved: (item: SavedItem) => void;
-  isSaved: (id: number) => boolean;
-  removeSaved: (id: number) => void;
+  isSaved: (id: number, type: SavedItem["type"]) => boolean;
+  removeSaved: (id: number, type: SavedItem["type"]) => void;
 
   repEvents: RepEvent[];
   triggerRep: (points: number, label: string) => void;
@@ -31,20 +31,48 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 
 export function AppContextProvider({ children }: { children: ReactNode }) {
-  const { isSignedIn } = useSession();
+  const { isSignedIn, user } = useSession();
 
   const [savedItems, setSavedItems] = useState<SavedItem[]>([]);
-  const [savedIds, setSavedIds] = useState<Set<number>>(new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [repEvents, setRepEvents] = useState<RepEvent[]>([]);
   const [sessionRep, setSessionRep] = useState(0);
   const [showLevelUp, setShowLevelUp] = useState(false);
+  const [savedHydrated, setSavedHydrated] = useState(false);
+
+  const savedStorageKey = user?.id ? "treffin_saved_items_" + user.id : null;
+
+  useEffect(() => {
+    setSavedHydrated(false);
+    if (!savedStorageKey) {
+      setSavedItems([]);
+      setSavedIds(new Set());
+      setSavedHydrated(true);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(localStorage.getItem(savedStorageKey) ?? "[]") as SavedItem[];
+      const valid = Array.isArray(parsed) ? parsed.filter((item) => item && Number.isInteger(item.id) && ["post", "article", "debate"].includes(item.type)) : [];
+      setSavedItems(valid);
+      setSavedIds(new Set(valid.map((item) => item.type + ":" + item.id)));
+    } catch {
+      setSavedItems([]);
+      setSavedIds(new Set());
+    }
+    setSavedHydrated(true);
+  }, [savedStorageKey]);
+
+  useEffect(() => {
+    if (savedHydrated && savedStorageKey) localStorage.setItem(savedStorageKey, JSON.stringify(savedItems));
+  }, [savedHydrated, savedItems, savedStorageKey]);
 
   const toggleSaved = useCallback((item: SavedItem) => {
-    if (savedIds.has(item.id)) {
-      setSavedIds(p => { const s = new Set(p); s.delete(item.id); return s; });
-      setSavedItems(p => p.filter(i => i.id !== item.id));
+    const savedKey = item.type + ":" + item.id;
+    if (savedIds.has(savedKey)) {
+      setSavedIds(p => { const s = new Set(p); s.delete(savedKey); return s; });
+      setSavedItems(p => p.filter(i => i.id !== item.id || i.type !== item.type));
     } else {
-      setSavedIds(p => new Set([...p, item.id]));
+      setSavedIds(p => new Set([...p, savedKey]));
       setSavedItems(p => [{ ...item, time: "Just now" }, ...p]);
       if (isSignedIn) {
         const id = Date.now() + Math.random();
@@ -56,11 +84,12 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
     }
   }, [savedIds, isSignedIn]);
 
-  const isSaved = useCallback((id: number) => savedIds.has(id), [savedIds]);
+  const isSaved = useCallback((id: number, type: SavedItem["type"]) => savedIds.has(type + ":" + id), [savedIds]);
 
-  const removeSaved = useCallback((id: number) => {
-    setSavedIds(p => { const s = new Set(p); s.delete(id); return s; });
-    setSavedItems(p => p.filter(i => i.id !== id));
+  const removeSaved = useCallback((id: number, type: SavedItem["type"]) => {
+    const savedKey = type + ":" + id;
+    setSavedIds(p => { const s = new Set(p); s.delete(savedKey); return s; });
+    setSavedItems(p => p.filter(i => i.id !== id || i.type !== type));
   }, []);
 
   const triggerRep = useCallback((points: number, label: string) => {

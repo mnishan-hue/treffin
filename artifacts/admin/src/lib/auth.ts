@@ -1,6 +1,15 @@
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+const isLocalPreview = typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+const missingProductionApiOrigin = import.meta.env.PROD && !apiOrigin && !isLocalPreview;
+
+export function getAdminApiConfigurationError(): string | null {
+  return missingProductionApiOrigin
+    ? "The admin deployment is missing VITE_API_BASE_URL. Set it to the public API origin and redeploy the admin app."
+    : null;
+}
 
 export async function hasAdminSession(): Promise<boolean> {
+  if (missingProductionApiOrigin) return false;
   try {
     const response = await fetch(`${apiOrigin}/api/admin/session`, { credentials: "include" });
     return response.ok;
@@ -14,6 +23,8 @@ export type AdminLoginResult =
   | { ok: false; error: string };
 
 export async function login(email: string, password: string): Promise<AdminLoginResult> {
+  const configurationError = getAdminApiConfigurationError();
+  if (configurationError) return { ok: false, error: configurationError };
   try {
     const response = await fetch(`${apiOrigin}/api/admin/login`, {
       method: "POST",
@@ -27,7 +38,9 @@ export async function login(email: string, password: string): Promise<AdminLogin
         ok: false,
         error: response.status === 401
           ? "Invalid email or password."
-          : (body?.error ?? "Admin sign-in failed. Please try again."),
+          : response.status === 503
+            ? "Admin authentication is not configured on the API. Set ADMIN_EMAIL, ADMIN_PASSWORD_HASH, and ADMIN_SESSION_SECRET."
+            : (body?.error ?? "Admin sign-in failed. Please try again."),
       };
     }
 
