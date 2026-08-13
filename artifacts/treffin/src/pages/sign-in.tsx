@@ -1,6 +1,6 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, MailCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import {
   AuthShell,
@@ -20,6 +20,20 @@ const OAUTH_ERROR_MESSAGES: Record<string, string> = {
   OAuthSignin: "Could not start Google sign-in. Please try again.",
 };
 
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return email;
+  return `${local.slice(0, 2)}${"*".repeat(Math.max(2, Math.min(6, local.length - 2)))}@${domain}`;
+}
+
+function otpErrorMessage(message?: string): string {
+  const normalized = message?.toLowerCase() ?? "";
+  if (normalized.includes("expired")) return "This code has expired. Request a new code and try again.";
+  if (normalized.includes("too many") || normalized.includes("locked")) return "Too many incorrect attempts. Please wait 15 minutes before trying again.";
+  if (normalized.includes("invalid")) return "That code is incorrect. Check the email and try again.";
+  return message || "Unable to verify the code. Please try again.";
+}
+
 export default function SignInPage() {
   const [, setLocation] = useLocation();
   const search = useSearch();
@@ -31,18 +45,90 @@ export default function SignInPage() {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [googlePending, setGooglePending] = useState(false);
+  const [step, setStep] = useState<"credentials" | "otp">("credentials");
+  const [otp, setOtp] = useState("");
+  const [notice, setNotice] = useState("");
+  const [resendSeconds, setResendSeconds] = useState(0);
+
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds]);
+
+
+  async function requestOtp(): Promise<boolean> {
+    const result = await authClient.twoFactor.sendOtp();
+    if (result.error) {
+      setError(result.error.message ?? "We could not send your sign-in code.");
+      return false;
+    }
+    setNotice(`A six-digit code was sent to ${maskEmail(email)}.`);
+    setResendSeconds(30);
+    return true;
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError("");
+    setNotice("");
     setPending(true);
-    const result = await authClient.signIn.email({ email, password });
-    setPending(false);
+    const result = await authClient.signIn.email({ email: email.trim(), password });
     if (result.error) {
+      setPending(false);
       setError(result.error.message ?? "Unable to sign in.");
       return;
     }
+
+    const data = result.data as { twoFactorRedirect?: boolean } | null;
+    if (data?.twoFactorRedirect) {
+      const sent = await requestOtp();
+      setPending(false);
+      if (sent) {
+        setPassword("");
+        setOtp("");
+        setStep("otp");
+      }
+      return;
+    }
+
+    setPending(false);
     setLocation("/");
+  }
+
+  async function submitOtp(event: FormEvent) {
+    event.preventDefault();
+    setError("");
+    if (!/^\d{6}$/.test(otp)) {
+      setError("Enter the complete six-digit code.");
+      return;
+    }
+    setPending(true);
+    const result = await authClient.twoFactor.verifyOtp({ code: otp, trustDevice: false });
+    setPending(false);
+    if (result.error) {
+      setError(otpErrorMessage(result.error.message));
+      return;
+    }
+    setLocation("/");
+  }
+
+  async function resendOtp() {
+    if (resendSeconds > 0 || pending) return;
+    setError("");
+    setNotice("");
+    setPending(true);
+    await requestOtp();
+    setPending(false);
+  }
+
+  function returnToCredentials() {
+    setStep("credentials");
+    setOtp("");
+    setError("");
+    setNotice("");
   }
 
   function signInWithGoogle() {
@@ -55,6 +141,74 @@ export default function SignInPage() {
   }
 
   const busy = pending || googlePending;
+
+  if (step === "otp") {
+    return (
+      <AuthShell>
+        <button
+          type="button"
+          onClick={returnToCredentials}
+          className="mb-6 flex min-h-10 items-center gap-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" /> Back
+        </button>
+        <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl border border-indigo-400/20 bg-indigo-500/10 text-indigo-300">
+          <MailCheck className="h-6 w-6" />
+        </div>
+        <h1 className="mb-2 text-[1.65rem] font-bold text-foreground">Check your email</h1>
+        <p className="mb-7 text-sm leading-6 text-muted-foreground">
+          Enter the six-digit security code sent to{" "}
+          <span className="break-all font-semibold text-foreground">{maskEmail(email)}</span>.
+        </p>
+
+        <form onSubmit={submitOtp} className="flex flex-col gap-4">
+          <InputField label="One-time code" htmlFor="sign-in-otp">
+            <input
+              id="sign-in-otp"
+              required
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              pattern="[0-9]{6}"
+              value={otp}
+              onChange={(event) => setOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              className="w-full rounded-xl px-3 py-3 pl-[0.25em] text-center font-mono text-2xl font-bold tracking-[0.25em] text-foreground outline-none transition-all placeholder:text-muted-foreground/30 sm:text-3xl sm:tracking-[0.35em]"
+              style={inputStyle}
+              {...inputFocusHandlers}
+            />
+          </InputField>
+
+          {notice && (
+            <div role="status" className="rounded-lg border border-emerald-500/15 bg-emerald-500/[0.07] px-3 py-2.5 text-xs leading-5 text-emerald-300">
+              {notice}
+            </div>
+          )}
+          {error && (
+            <div role="alert" className="rounded-lg border border-red-500/15 bg-red-500/[0.07] px-3 py-2.5 text-xs leading-5 text-red-400">
+              {error}
+            </div>
+          )}
+
+          <PrimaryButton loading={pending} disabled={pending} label="Verify and sign in" loadingLabel="Verifying..." />
+          <button
+            type="button"
+            onClick={resendOtp}
+            disabled={pending || resendSeconds > 0}
+            className="min-h-10 text-sm font-semibold text-indigo-400 transition-colors hover:text-indigo-300 disabled:cursor-not-allowed disabled:text-muted-foreground"
+          >
+            {resendSeconds > 0 ? `Send a new code in ${resendSeconds}s` : "Send a new code"}
+          </button>
+        </form>
+
+        <p className="mt-5 text-center text-xs leading-5 text-muted-foreground">
+          The code expires after five minutes and can be used only once.
+        </p>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell>
@@ -110,8 +264,9 @@ export default function SignInPage() {
 
         {/* Email + password form */}
         <form onSubmit={submit} className="flex flex-col gap-4">
-          <InputField label="Email">
+          <InputField label="Email" htmlFor="sign-in-email">
             <input
+              id="sign-in-email"
               required
               type="email"
               value={email}
@@ -125,18 +280,19 @@ export default function SignInPage() {
 
           <InputField
             label="Password"
+            htmlFor="sign-in-password"
             action={
-              <button
-                type="button"
-                tabIndex={-1}
+              <Link
+                href="/forgot-password"
                 className="text-[0.7rem] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors"
               >
                 Forgot password?
-              </button>
+              </Link>
             }
           >
             <div className="relative">
               <input
+                id="sign-in-password"
                 required
                 type={showPassword ? "text" : "password"}
                 value={password}

@@ -35,33 +35,45 @@ interface SelectionInfo {
   y: number;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatSafeText(value: string): string {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\n/g, "<br/>");
+}
+
 function buildParagraphHtml(
   rawText: string,
   paragraphAnnotations: Array<Annotation & { markerNum: number }>,
 ): string {
-  let result = rawText;
-  for (const ann of paragraphAnnotations) {
-    const idx = result.indexOf(ann.selectedText);
-    if (idx === -1) continue;
-    const before = result.slice(0, idx);
-    const match = result.slice(idx, idx + ann.selectedText.length);
-    const after = result.slice(idx + ann.selectedText.length);
-    result =
-      before +
-      `<span class="ann-hl" data-ann-id="${ann.id}">${match}<sup class="ann-num">${ann.markerNum}</sup></span>` +
-      after;
+  const matches = paragraphAnnotations
+    .map((annotation) => ({ annotation, index: rawText.indexOf(annotation.selectedText) }))
+    .filter((entry) => entry.index >= 0)
+    .sort((left, right) => left.index - right.index);
+  let cursor = 0;
+  let result = "";
+  for (const { annotation, index } of matches) {
+    if (index < cursor) continue;
+    result += formatSafeText(rawText.slice(cursor, index));
+    const end = index + annotation.selectedText.length;
+    result += `<span class="ann-hl" data-ann-id="${annotation.id}">${formatSafeText(rawText.slice(index, end))}<sup class="ann-num">${annotation.markerNum}</sup></span>`;
+    cursor = end;
   }
-  result = result
-    .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\n/g, "<br/>");
-  return result;
+  return result + formatSafeText(rawText.slice(cursor));
 }
-
 export default function ArticleDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { toggleSaved, isSaved, triggerRep } = useAppContext();
+  const { toggleSaved, isSaved } = useAppContext();
   const articleId = Number(id);
   const queryClient = useQueryClient();
   const { user } = useSession();
@@ -70,12 +82,12 @@ export default function ArticleDetail() {
     query: { enabled: !!user, queryKey: getGetCurrentUserQueryKey() },
   });
 
-  const { data: article, isLoading } = useGetArticle(articleId, {
+  const { data: article, isLoading, isError: articleError, refetch: refetchArticle } = useGetArticle(articleId, {
     query: { enabled: !!articleId, queryKey: getGetArticleQueryKey(articleId) },
   });
   const isArticleAuthor = !!currentUserProfile && !!article && currentUserProfile.id === article.authorId;
 
-  const { data: annotations = [] } = useGetArticleAnnotations(articleId, {
+  const { data: annotations = [], isError: annotationsError, refetch: refetchAnnotations } = useGetArticleAnnotations(articleId, {
     query: { enabled: !!articleId, queryKey: getGetArticleAnnotationsQueryKey(articleId) },
   });
 
@@ -145,7 +157,7 @@ export default function ArticleDetail() {
 
   const articleBodyRef = useRef<HTMLDivElement>(null);
 
-  const saved = isSaved(articleId);
+  const saved = isSaved(articleId, "article");
   const isOwnArticle = !!(currentUserProfile && article?.authorId && currentUserProfile.id === article.authorId);
   const reviewRequestStatus = article?.reviewRequestStatus ?? null;
   const reviewSubmitted = reviewRequestStatus !== null;
@@ -213,14 +225,39 @@ export default function ArticleDetail() {
   };
 
   const handleLike = () => {
-    const newLiked = !liked;
-    setLiked(newLiked);
-    setLikeCount(p => p + (newLiked ? 1 : -1));
-    if (newLiked) triggerRep(5, "like");
-    likeMutation.mutate({ id: articleId });
+    if (!user) {
+      toast({ title: "Sign in to like articles", variant: "destructive" });
+      return;
+    }
+    if (likeMutation.isPending) return;
+    const previousLiked = liked;
+    const previousCount = likeCount;
+    const nextLiked = !previousLiked;
+    setLiked(nextLiked);
+    setLikeCount(Math.max(0, previousCount + (nextLiked ? 1 : -1)));
+    likeMutation.mutate(
+      { id: articleId },
+      {
+        onSuccess: (updated) => {
+          setLiked(updated.liked ?? nextLiked);
+          setLikeCount(updated.likes);
+          queryClient.invalidateQueries({ queryKey: getGetArticleQueryKey(articleId) });
+        },
+        onError: (error: unknown) => {
+          setLiked(previousLiked);
+          setLikeCount(previousCount);
+          const message = (error as { data?: { error?: string } })?.data?.error ?? "Could not update this like.";
+          toast({ title: "Like failed", description: message, variant: "destructive" });
+        },
+      },
+    );
   };
 
   const handleSave = () => {
+    if (!user) {
+      toast({ title: "Sign in to save articles", variant: "destructive" });
+      return;
+    }
     toggleSaved({
       id: articleId,
       type: "article",
@@ -235,23 +272,28 @@ export default function ArticleDetail() {
 
   const handlePeerReview = () => { submitReviewRequest.mutate({ id: articleId }); };
 
-  useEffect(() => {
-    if (!articleId) return;
+  const loadComments = useCallback(async () => {
+    if (!Number.isInteger(articleId) || articleId <= 0) return;
     setCommentsLoading(true);
     setCommentsError(false);
-    customFetch<{ id: number; authorId?: number; authorName: string; content: string; createdAt: string }[]>(
-      `/api/articles/${articleId}/comments`,
-    )
-      .then(data => setComments(Array.isArray(data) ? data.map(c => ({ ...c, authorId: c.authorId ?? 0 })) : []))
-      .catch(() => setCommentsError(true))
-      .finally(() => setCommentsLoading(false));
+    try {
+      const data = await customFetch<{ id: number; authorId?: number; authorName: string; content: string; createdAt: string }[]>(
+        `/api/articles/${articleId}/comments`,
+      );
+      setComments(Array.isArray(data) ? data.map((comment) => ({ ...comment, authorId: comment.authorId ?? 0 })) : []);
+    } catch {
+      setCommentsError(true);
+    } finally {
+      setCommentsLoading(false);
+    }
   }, [articleId]);
 
+  useEffect(() => { void loadComments(); }, [loadComments]);
   const handleComment = async () => {
+    if (!user) { toast({ title: "Sign in to comment", variant: "destructive" }); return; }
     if (!commentInput.trim()) return;
     const authorName = user?.fullName ?? user?.username ?? "Anonymous";
     const body = commentInput.trim();
-    setCommentInput("");
     try {
       const newComment = await customFetch<{ id: number; authorId?: number; authorName: string; content: string; createdAt: string }>(
         `/api/articles/${articleId}/comments`,
@@ -262,7 +304,7 @@ export default function ArticleDetail() {
         },
       );
       setComments(p => [...p, { ...newComment, authorId: newComment.authorId ?? 0 }]);
-      triggerRep(2, "comment");
+      setCommentInput("");
       toast({ title: "Comment posted!" });
     } catch (err: unknown) {
       const msg = (err as { data?: { error?: string } })?.data?.error ?? "Failed to post comment.";
@@ -331,9 +373,9 @@ export default function ArticleDetail() {
         <div
           className="fixed z-50 max-w-[calc(100vw-1rem)]"
           style={{
-            left: Math.max(8, Math.min(selectionInfo.x, window.innerWidth - 296)),
+            left: window.innerWidth < 640 ? 8 : Math.max(152, Math.min(selectionInfo.x, window.innerWidth - 152)),
             top: Math.max(70, selectionInfo.y - window.scrollY - 12),
-            transform: "translate(-40%, -100%)",
+            transform: window.innerWidth < 640 ? "translateY(-100%)" : "translate(-50%, -100%)",
           }}
         >
           <div className="bg-card border border-border rounded-xl shadow-xl p-4 w-72 max-w-full flex flex-col gap-3">
@@ -394,7 +436,12 @@ export default function ArticleDetail() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-none p-3 flex flex-col gap-3">
-            {annotations.length === 0 ? (
+            {annotationsError ? (
+              <div className="text-center py-8 flex flex-col items-center gap-2" role="alert">
+                <p className="text-sm text-muted-foreground">Annotations could not be loaded.</p>
+                <button className="text-xs font-semibold text-primary hover:underline" onClick={() => { void refetchAnnotations(); }}>Try again</button>
+              </div>
+            ) : annotations.length === 0 ? (
               <div className="text-center py-8 flex flex-col items-center gap-2">
                 <Highlighter className="w-8 h-8 text-muted-foreground/30" />
                 <p className="text-sm text-muted-foreground">No annotations yet.</p>
@@ -451,8 +498,17 @@ export default function ArticleDetail() {
             <Skeleton className="h-4 w-1/2" />
             <Skeleton className="h-64 w-full rounded-xl" />
           </div>
+        ) : !article ? (
+          <div className="rounded-2xl border border-border bg-card p-8 text-center" role="alert">
+            <h1 className="text-xl font-bold">Article unavailable</h1>
+            <p className="mt-2 text-sm text-muted-foreground">{articleError ? "The article could not be loaded." : "This article may have been removed or is not published."}</p>
+            <div className="mt-4 flex justify-center gap-3">
+              {articleError && <button className="text-sm font-semibold text-primary hover:underline" onClick={() => { void refetchArticle(); }}>Try again</button>}
+              <button className="text-sm font-semibold text-muted-foreground hover:text-foreground" onClick={() => setLocation("/articles")}>Back to articles</button>
+            </div>
+          </div>
         ) : (
-          <article className="flex flex-col gap-6">
+          <article className="flex flex-col gap-6 min-w-0">
             {/* Category & badges */}
             <div className="flex items-center gap-2 flex-wrap">
               {article?.category && (
@@ -548,6 +604,7 @@ export default function ArticleDetail() {
               <button
                 className={cn("flex items-center gap-2 text-sm font-medium transition-colors px-4 py-2 rounded-full border", liked ? "text-red-400 border-red-400/30 bg-red-400/10" : "text-muted-foreground border-border hover:text-red-400 hover:border-red-400/30")}
                 onClick={handleLike}
+                disabled={likeMutation.isPending}
                 data-testid="button-like-article"
               >
                 <Heart className={cn("w-4 h-4", liked && "fill-current")} />
@@ -601,13 +658,13 @@ export default function ArticleDetail() {
             {/* Comments */}
             <div className="flex flex-col gap-4 pt-2 border-t border-border">
               <h3 className="font-bold text-base">Discussion</h3>
-              <div className="flex gap-2 items-center">
+              <div className="flex gap-2 items-center min-w-0">
                 <Avatar className="w-8 h-8 shrink-0">
                   <AvatarFallback className="text-xs bg-primary/20 text-primary">YO</AvatarFallback>
                 </Avatar>
-                <div className="flex-1 flex items-center gap-2 bg-muted/50 border border-border rounded-full px-4 py-2">
+                <div className="flex-1 min-w-0 flex items-center gap-2 bg-muted/50 border border-border rounded-2xl sm:rounded-full px-3 sm:px-4 py-2">
                   <input
-                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    className="flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                     placeholder="Share your thoughts on this article..."
                     value={commentInput}
                     onChange={e => setCommentInput(e.target.value)}
@@ -622,6 +679,11 @@ export default function ArticleDetail() {
               <div className="flex flex-col gap-3">
                 {commentsLoading ? (
                   <div className="flex flex-col gap-2">{[1,2].map(i => <div key={i} className="h-16 bg-muted/30 rounded-xl animate-pulse" />)}</div>
+                ) : commentsError ? (
+                  <div className="rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-center" role="alert">
+                    <p className="text-sm text-muted-foreground">Comments could not be loaded.</p>
+                    <button className="mt-2 text-xs font-semibold text-primary hover:underline" onClick={() => { void loadComments(); }}>Try again</button>
+                  </div>
                 ) : comments.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">No comments yet. Be the first to share your thoughts.</p>
                 ) : comments.map(c => {

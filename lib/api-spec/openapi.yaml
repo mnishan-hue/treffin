@@ -3583,6 +3583,8 @@ components:
           type: integer
         likes:
           type: integer
+        comments:
+          type: integer
         liked:
           type: boolean
         isVerified:

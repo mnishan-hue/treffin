@@ -1,11 +1,13 @@
-import { useState } from "react";
-import { FeedPost } from "@workspace/api-client-react";
+import { useEffect, useState } from "react";
+import { FeedPost, useLikeArticle } from "@workspace/api-client-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatNumber } from "@/lib/utils";
 import { Bookmark, Clock, Heart, MessageCircle, Users, CheckCircle } from "lucide-react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useAppContext } from "@/context/app-context";
+import { useSession } from "@/lib/auth-client";
 
 /* Gradient placeholder thumbnails based on topic */
 const TOPIC_GRADIENTS: Record<string, string> = {
@@ -46,28 +48,71 @@ function formatRelativeDate(isoString: string | null | undefined): string {
   }
 }
 
-export function ArticleCard({ post }: { post: FeedPost & { id: number; reviewRequestStatus?: string | null; isExpertReviewed?: boolean } }) {
+export function ArticleCard({ post }: { post: FeedPost & { id: number; category?: string | null; liked?: boolean; reviewRequestStatus?: string | null; isExpertReviewed?: boolean } }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [saved, setSaved] = useState(false);
-  const [liked, setLiked] = useState(false);
+  const { user } = useSession();
+  const { toggleSaved, isSaved } = useAppContext();
+  const likeArticle = useLikeArticle();
+  const [liked, setLiked] = useState(post.liked ?? false);
   const [likeCount, setLikeCount] = useState(post.likes);
+  const saved = isSaved(post.id, "article");
+  const topic = post.topic ?? post.category ?? undefined;
 
-  const handleSave = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setSaved((p) => !p);
+  useEffect(() => {
+    setLiked(post.liked ?? false);
+    setLikeCount(post.likes);
+  }, [post.id, post.liked, post.likes]);
+
+  const handleSave = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!user) {
+      toast({ title: "Sign in to save articles", variant: "destructive" });
+      return;
+    }
+    toggleSaved({
+      id: post.id,
+      type: "article",
+      title: post.title ?? "Article",
+      excerpt: post.excerpt ?? "",
+      author: post.authorName,
+      time: "Just now",
+      href: `/articles/${post.id}`,
+    });
     toast({ title: saved ? "Removed from saved" : "Article saved!" });
   };
 
-  const handleLike = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setLiked((p) => !p);
-    setLikeCount((p) => (liked ? p - 1 : p + 1));
+  const handleLike = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (!user) {
+      toast({ title: "Sign in to like articles", variant: "destructive" });
+      return;
+    }
+    if (likeArticle.isPending) return;
+    const previousLiked = liked;
+    const previousCount = likeCount;
+    const nextLiked = !previousLiked;
+    setLiked(nextLiked);
+    setLikeCount(Math.max(0, previousCount + (nextLiked ? 1 : -1)));
+    likeArticle.mutate(
+      { id: post.id },
+      {
+        onSuccess: (updated) => {
+          setLiked(updated.liked ?? nextLiked);
+          setLikeCount(updated.likes);
+        },
+        onError: (error: unknown) => {
+          setLiked(previousLiked);
+          setLikeCount(previousCount);
+          const message = (error as { data?: { error?: string } })?.data?.error ?? "Could not update this like.";
+          toast({ title: "Like failed", description: message, variant: "destructive" });
+        },
+      },
+    );
   };
 
-  const topicGrad = post.topic ? (TOPIC_GRADIENTS[post.topic] ?? "from-indigo-600 to-blue-700") : "from-indigo-600 to-blue-700";
-  const topicIcon = post.topic ? (TOPIC_ICONS[post.topic] ?? "📝") : "📝";
-
+  const topicGrad = topic ? (TOPIC_GRADIENTS[topic] ?? "from-indigo-600 to-blue-700") : "from-indigo-600 to-blue-700";
+  const topicIcon = topic ? (TOPIC_ICONS[topic] ?? "ðŸ“") : "ðŸ“";
   return (
     <div
       data-testid={`card-article-${post.id}`}
@@ -76,14 +121,14 @@ export function ArticleCard({ post }: { post: FeedPost & { id: number; reviewReq
     >
       <div className="p-4">
         {/* Author row */}
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 flex-wrap min-w-0">
           <Avatar className="w-6 h-6 border border-border/50">
             <AvatarImage src={post.authorAvatar || undefined} />
             <AvatarFallback className="text-[10px] bg-primary/15 text-primary font-bold">
               {post.authorName.substring(0, 2).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <span className="font-medium text-xs">{post.authorName}</span>
+          <span className="font-medium text-xs truncate max-w-[10rem]">{post.authorName}</span>
           {post.isVerified && (
             <svg className="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="currentColor">
               <path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
@@ -91,10 +136,10 @@ export function ArticleCard({ post }: { post: FeedPost & { id: number; reviewReq
           )}
           <span className="text-xs text-muted-foreground">·</span>
           <span className="text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded-full uppercase tracking-wide">Article</span>
-          {post.topic && (
+          {topic && (
             <>
               <span className="text-xs text-muted-foreground">·</span>
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{post.topic}</span>
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">{topic}</span>
             </>
           )}
           {post.isExpertReviewed && (
@@ -133,14 +178,14 @@ export function ArticleCard({ post }: { post: FeedPost & { id: number; reviewReq
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-border/40">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mt-3 pt-3 border-t border-border/40">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             {post.readTime && (
               <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {post.readTime} min read</span>
             )}
             <span>{formatRelativeDate(post.createdAt)}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <button
               className={cn("flex items-center gap-1 text-xs transition-colors", liked ? "text-rose-400" : "text-muted-foreground hover:text-rose-400")}
               onClick={handleLike}

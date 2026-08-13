@@ -144,7 +144,7 @@ function WriteArticleModal({ onClose }: { onClose: () => void }) {
         onSuccess: (newArticle) => {
           clearDraft();
           triggerRep(25, "article");
-          toast({ title: "Article published! +25 rep", description: peerReview ? "Submitted for peer review." : "Your article is now live on Treffin." });
+          toast({ title: "Article published!", description: peerReview ? "Submitted for peer review." : "Your article is now live on Treffin." });
           onClose();
           setLocation(`/articles/${newArticle.id}`);
         },
@@ -387,7 +387,7 @@ export default function Articles() {
   const { data: topicsData } = useGetTopics();
   const topics = ["All", ...(topicsData?.map(t => t.name) ?? [])];
 
-  const { data: articles, isLoading } = useGetArticles({
+  const { data: articles, isLoading, isError, refetch } = useGetArticles({
     sort: sortMode,
     ...(topicFilter !== "All" ? { category: topicFilter } : {}),
   });
@@ -397,12 +397,12 @@ export default function Articles() {
   return (
     <AppLayout>
       <div className="flex flex-col gap-6">
-        <div className="flex items-center justify-between sticky top-[64px] z-40 bg-background/95 backdrop-blur-sm py-4 border-b border-border">
+        <div className="flex items-center justify-between gap-3 sticky top-[64px] z-40 bg-background/95 backdrop-blur-sm py-4 border-b border-border">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-1.5">Articles <SectionInfo title="Articles" icon="✍️" accent="from-sky-400 to-indigo-600" description="Long-form ideas, depth over brevity. Publish essays, analysis, and arguments that deserve more than a post. Community reviewers can badge the best work as verified." /></h1>
           </div>
           <button
-            className="bg-primary text-primary-foreground font-semibold px-4 py-2 rounded-full text-sm hover:bg-primary/90 transition-colors flex items-center gap-2"
+            className="bg-primary text-primary-foreground font-semibold px-3 sm:px-4 py-2 rounded-full text-sm hover:bg-primary/90 transition-colors flex items-center gap-2 shrink-0"
             onClick={() => setLocation('/articles/new')}
             data-testid="button-write-article"
           >
@@ -447,6 +447,12 @@ export default function Articles() {
         <div className="grid grid-cols-1 gap-4">
           {isLoading ? (
             Array(5).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[160px] rounded-xl" />)
+          ) : isError ? (
+            <div className="text-center py-12 text-muted-foreground bg-card border border-red-400/20 rounded-2xl" role="alert">
+              <AlertCircle className="w-9 h-9 mx-auto mb-3 text-red-400/60" />
+              <p className="font-semibold text-foreground">Articles could not be loaded</p>
+              <button className="mt-3 text-sm font-semibold text-primary hover:underline" onClick={() => { void refetch(); }}>Try again</button>
+            </div>
           ) : sorted.length === 0 ? (
             <div className="text-center py-16 text-muted-foreground bg-card border border-border rounded-2xl">
               <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
@@ -465,7 +471,7 @@ export default function Articles() {
                 ...article,
                 type: "article",
                 topic: article.category ?? undefined,
-                comments: 0,
+                comments: (article as typeof article & { comments?: number }).comments ?? 0,
                 reposts: 0,
               }} />
             ))

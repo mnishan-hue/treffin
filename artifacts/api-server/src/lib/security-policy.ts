@@ -28,8 +28,12 @@ export function destructiveDbToolsEnabled(nodeEnv: string | undefined): boolean 
   return nodeEnv !== "production";
 }
 
-export function debateAcceptsParticipation(debate: { isLive: boolean; isFrozen?: boolean; endedAt?: Date | null }): boolean {
-  return debate.isLive && !debate.isFrozen && !debate.endedAt;
+export function debateAcceptsParticipation(debate: { isLive: boolean; isFrozen?: boolean; endedAt?: Date | null; endsAt?: Date | null }, now = new Date()): boolean {
+  return debate.isLive && !debate.isFrozen && !debate.endedAt && (!debate.endsAt || debate.endsAt.getTime() > now.getTime());
+}
+
+export function validDebateAuthority(creatorIsModerator: boolean, winnerAuthority: unknown): winnerAuthority is "creator" | "admin" {
+  return winnerAuthority === "admin" || (creatorIsModerator && winnerAuthority === "creator");
 }
 
 export function isDebateSide(value: unknown): value is "support" | "against" {
@@ -41,4 +45,12 @@ export function isDebateWinnerSide(value: unknown): value is "support" | "agains
 
 export function battleAcceptsInteraction(battle: { endedAt?: Date | null; winnerStatus?: string | null }): boolean {
   return !battle.endedAt && (battle.winnerStatus ?? "undecided") === "undecided";
+}
+export function reputationReference(...parts: Array<string | number>): number {
+  let hash = 0x811c9dc5;
+  for (const char of parts.join(":")) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash & 0x7fffffff;
 }

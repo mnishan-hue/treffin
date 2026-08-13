@@ -28,6 +28,7 @@ function PostMenu({ postId, isOwner, onDelete, onReported }: { postId: number; i
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { isSignedIn } = useSession();
   const reportMutation = useReportPost();
 
   useEffect(() => {
@@ -40,13 +41,15 @@ function PostMenu({ postId, isOwner, onDelete, onReported }: { postId: number; i
   }, [open]);
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href).catch(() => {});
+    const url = new URL("/#post-" + postId, window.location.origin).toString();
+    navigator.clipboard.writeText(url).catch(() => {});
     toast({ title: "Link copied!" });
     setOpen(false);
   };
 
   const handleReport = () => {
     setOpen(false);
+    if (!isSignedIn) { toast({ title: "Sign in to report a post", variant: "destructive" }); return; }
     reportMutation.mutate(
       { id: postId },
       {
@@ -114,7 +117,7 @@ function PostMenu({ postId, isOwner, onDelete, onReported }: { postId: number; i
 
 export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost; onInteraction?: () => void }) {
   const { toggleSaved, isSaved, triggerRep } = useAppContext();
-  const { user } = useSession();
+  const { user, isSignedIn } = useSession();
   const [post, setPost] = useState(initialPost);
   const [liked, setLiked] = useState(initialPost.liked ?? false);
   const [likeCount, setLikeCount] = useState(post.likes);
@@ -132,7 +135,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
   const { data: currentUserProfile } = useGetCurrentUser({
     query: { enabled: !!user, queryKey: getGetCurrentUserQueryKey() },
   });
-  const saved = isSaved(post.id);
+  const saved = isSaved(post.id, "post");
   const isOwner = post.isOwner ?? false;
   const isAnonymous = post.isAnonymous ?? false;
 
@@ -148,6 +151,12 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
   const createComment = useCreatePostComment();
   const deleteComment = useDeletePostComment();
   const likePostComment = useLikePostComment();
+
+  useEffect(() => {
+    setPost(initialPost);
+    setLiked(initialPost.liked ?? false);
+    setLikeCount(initialPost.likes);
+  }, [initialPost]);
 
   useEffect(() => {
     if (showComments) setTimeout(() => inputRef.current?.focus(), 80);
@@ -168,6 +177,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
   }, [comments]);
 
   const handleLike = () => {
+    if (!isSignedIn) { toast({ title: "Sign in to like posts", variant: "destructive" }); return; }
     setLiked(prev => !prev);
     setLikeCount(prev => liked ? prev - 1 : prev + 1);
     if (!liked) triggerRep(5, "like");
@@ -178,15 +188,17 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
           queryClient.invalidateQueries({ queryKey: getGetFeedQueryKey() });
           onInteraction?.();
         },
-        onError: () => {
+        onError: (error: any) => {
           setLiked(prev => !prev);
           setLikeCount(prev => liked ? prev + 1 : prev - 1);
+          toast({ title: error?.status === 401 ? "Please sign in again" : "Like was not saved", variant: "destructive" });
         },
       }
     );
   };
 
   const handleSave = () => {
+    if (!isSignedIn) { toast({ title: "Sign in to save posts", variant: "destructive" }); return; }
     toggleSaved({
       id: post.id,
       type: "post",
@@ -194,13 +206,13 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
       excerpt: (post.content ?? "").substring(0, 120),
       author: post.authorName,
       time: post.createdAt,
-      href: "/",
+      href: "/#post-" + post.id,
     });
     toast({ title: saved ? "Removed from saved" : "Saved!", description: saved ? "" : "Post added to your saved items." });
   };
 
   const handleShare = async () => {
-    const url = window.location.href;
+    const url = new URL("/#post-" + post.id, window.location.origin).toString();
     if (navigator.share) {
       try {
         await navigator.share({ title: post.authorName ? `${post.authorName} on Treffin` : "Treffin", text: post.content?.slice(0, 100) ?? "Check this out on Treffin, where minds debate.", url });
@@ -310,6 +322,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
   return (
     <motion.div
       layout
+      id={"post-" + post.id}
       data-testid={`card-post-${post.id}`}
       className={cn(
         "bg-card border border-border/60 rounded-xl hover:border-primary/35 hover:shadow-[0_0_20px_rgba(124,58,237,0.08)] transition-all group",

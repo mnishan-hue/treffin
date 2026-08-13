@@ -44,6 +44,8 @@ const Admin = lazy(() => import("@/pages/admin"));
 const Discover = lazy(() => import("@/pages/discover"));
 const SignIn = lazy(() => import("@/pages/sign-in"));
 const SignUp = lazy(() => import("@/pages/sign-up"));
+const ForgotPassword = lazy(() => import("@/pages/forgot-password"));
+const ResetPassword = lazy(() => import("@/pages/reset-password"));
 const MathHub = lazy(() => import("@/pages/math/index"));
 const ProblemDetail = lazy(() => import("@/pages/math/problem-detail"));
 const PostProblem = lazy(() => import("@/pages/math/post-problem"));
@@ -193,6 +195,8 @@ function AppRouter() {
       <Route path="/about" component={About} />
       <Route path="/sign-in" component={SignIn} />
       <Route path="/sign-up" component={SignUp} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/debates" component={Debates} />
       <Route path="/debates/:id" component={DebateRoom} />
       <Route path="/articles" component={Articles} />

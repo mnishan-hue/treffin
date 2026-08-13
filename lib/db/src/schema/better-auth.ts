@@ -4,13 +4,14 @@
  * existing `users` table is the join-key bridge between both identity
  * systems during the Clerk → Better Auth migration period.
  */
-import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, boolean, integer, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 export const baUser = pgTable("ba_user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(true),
   image: text("image"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -28,6 +29,20 @@ export const baSession = pgTable("ba_session", {
     .notNull()
     .references(() => baUser.id, { onDelete: "cascade" }),
 });
+
+export const baTwoFactor = pgTable("ba_two_factor", {
+  id: text("id").primaryKey(),
+  secret: text("secret").notNull(),
+  backupCodes: text("backup_codes").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => baUser.id, { onDelete: "cascade" }),
+  verified: boolean("verified").notNull().default(true),
+  failedVerificationCount: integer("failed_verification_count").notNull().default(0),
+  lockedUntil: timestamp("locked_until"),
+}, (table) => [
+  uniqueIndex("ba_two_factor_user_id_idx").on(table.userId),
+]);
 
 export const baAccount = pgTable("ba_account", {
   id: text("id").primaryKey(),

@@ -6,54 +6,65 @@ import { eq, desc, sql, and, asc, inArray } from "drizzle-orm";
 import { createNotification } from "../lib/notify";
 import { checkToxicity, detectAiContent, checkSourceRequirement } from "../lib/content-moderation";
 import { awardRep } from "./reputation";
+import { reputationReference } from "../lib/security-policy";
 
 const router = Router();
 
 router.post("/articles/:id/review-request", async (req, res) => {
-  const clerkId = req.betterAuthSession?.user?.id ?? null;
-  if (!clerkId) {
+  const authUser = req.betterAuthSession?.user ?? null;
+  if (!authUser) {
     res.status(401).json({ error: "Sign in to request a review" }); return;
   }
+  const articleId = Number(req.params.id);
+  if (!Number.isInteger(articleId) || articleId <= 0) {
+    res.status(400).json({ error: "Invalid article id" }); return;
+  }
+
   try {
-    const articleId = Number(req.params.id);
-    if (isNaN(articleId)) {
-      res.status(400).json({ error: "Invalid article id" }); return;
-    }
-
-    const [[article], [dbUser]] = await Promise.all([
-      db.select().from(articlesTable).where(eq(articlesTable.id, articleId)).limit(1),
-      db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.betterAuthId, clerkId)).limit(1),
-    ]);
-
-    if (!article) {
-      res.status(404).json({ error: "Article not found" }); return;
-    }
+    const dbUser = await jitProvisionUser(authUser);
     if (!dbUser) {
-      res.status(401).json({ error: "User profile not found" }); return;
+      res.status(503).json({ error: "Could not load your user profile" }); return;
     }
 
-    // Only the article author may request a peer review
-    if (article.authorId !== dbUser.id) {
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(3, ${articleId})`);
+      const [article] = await tx
+        .select()
+        .from(articlesTable)
+        .where(and(
+          eq(articlesTable.id, articleId),
+          eq(articlesTable.status, "published"),
+          eq(articlesTable.isRemoved, false),
+        ))
+        .limit(1);
+      if (!article) return { kind: "missing" as const };
+      if (article.authorId !== dbUser.id) return { kind: "forbidden" as const };
+
+      const [existing] = await tx
+        .select({ id: articleReviewRequestsTable.id })
+        .from(articleReviewRequestsTable)
+        .where(eq(articleReviewRequestsTable.articleId, articleId))
+        .limit(1);
+      if (existing) return { kind: "duplicate" as const };
+
+      const [request] = await tx
+        .insert(articleReviewRequestsTable)
+        .values({ articleId, requesterId: dbUser.id, status: "pending" })
+        .returning();
+      return { kind: "created" as const, request };
+    });
+
+    if (result.kind === "missing") {
+      res.status(404).json({ error: "Published article not found" }); return;
+    }
+    if (result.kind === "forbidden") {
       res.status(403).json({ error: "Only the article author can request a review" }); return;
     }
-
-    const existing = await db
-      .select()
-      .from(articleReviewRequestsTable)
-      .where(eq(articleReviewRequestsTable.articleId, articleId))
-      .limit(1);
-
-    if (existing.length > 0) {
+    if (result.kind === "duplicate") {
       res.status(409).json({ error: "Review request already exists" }); return;
     }
 
-    const requesterId = dbUser.id;
-
-    const [request] = await db
-      .insert(articleReviewRequestsTable)
-      .values({ articleId, requesterId, status: "pending" })
-      .returning();
-
+    const { request } = result;
     res.status(201).json({
       id: request.id,
       articleId: request.articleId,
@@ -67,7 +78,6 @@ router.post("/articles/:id/review-request", async (req, res) => {
     res.status(500).json({ error: "Failed to submit review request" });
   }
 });
-
 router.get("/articles", async (req, res) => {
   try {
     const category = typeof req.query.category === "string" && req.query.category.trim() && req.query.category.toLowerCase() !== "all"
@@ -118,6 +128,20 @@ router.get("/articles", async (req, res) => {
       reviewRows.forEach(r => reviewRequestMap.set(r.articleId, r.status));
     }
 
+    const commentCountMap = new Map<number, number>();
+    if (articleIds.length > 0) {
+      const commentCounts = await db
+        .select({ articleId: commentsTable.articleId, count: sql<number>`count(*)::int` })
+        .from(commentsTable)
+        .where(and(
+          inArray(commentsTable.articleId, articleIds),
+          eq(commentsTable.isRemoved, false),
+        ))
+        .groupBy(commentsTable.articleId);
+      for (const row of commentCounts) {
+        if (row.articleId !== null) commentCountMap.set(row.articleId, row.count);
+      }
+    }
     const result = rows.map(({ article: a, author }) => ({
       id: a.id,
       title: a.title,
@@ -130,6 +154,7 @@ router.get("/articles", async (req, res) => {
       category: a.category ?? null,
       readTime: a.readTime,
       likes: a.likes,
+      comments: commentCountMap.get(a.id) ?? 0,
       liked: likedSet.has(a.id),
       isVerified: author?.isVerified ?? false,
       createdAt: a.createdAt.toISOString(),
@@ -149,6 +174,7 @@ router.get("/articles", async (req, res) => {
 router.get("/articles/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid article id" }); return; }
 
     // Parallel: fetch article+author (JOIN), review request, and liked status
     const clerkId = req.betterAuthSession?.user?.id ?? null;
@@ -202,80 +228,98 @@ router.get("/articles/:id", async (req, res) => {
 
 router.post("/articles", async (req, res) => {
   try {
-    const clerkId = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkId) {
-      return res.status(401).json({ error: "Sign in to publish an article" });
+    const authUser = req.betterAuthSession?.user ?? null;
+    if (!authUser) {
+      res.status(401).json({ error: "Sign in to publish an article" }); return;
     }
-    let [author] = await db
-      .select()
-      .from(usersTable)
-      .where(eq(usersTable.betterAuthId, clerkId))
-      .limit(1);
+    const author = await jitProvisionUser(authUser);
     if (!author) {
-      const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
-      if (!provisioned) {
-        return res.status(503).json({ error: "Could not create your profile. Please try again." });
-      }
-      author = provisioned;
+      res.status(503).json({ error: "Could not create your profile. Please try again." }); return;
     }
 
-    const { title, excerpt, content, category, imageUrl, peerReview } = req.body as {
-      title: string;
-      excerpt?: string;
-      content?: string;
-      category?: string;
-      imageUrl?: string;
-      peerReview?: boolean;
+    const raw = req.body as {
+      title?: unknown;
+      excerpt?: unknown;
+      content?: unknown;
+      category?: unknown;
+      imageUrl?: unknown;
+      peerReview?: unknown;
     };
+    const title = typeof raw.title === "string" ? raw.title.trim() : "";
+    const excerpt = typeof raw.excerpt === "string" ? raw.excerpt.trim() : "";
+    const content = typeof raw.content === "string" ? raw.content.trim() : "";
+    const category = typeof raw.category === "string" ? raw.category.trim() : "";
+    const imageUrl = typeof raw.imageUrl === "string" ? raw.imageUrl.trim() : "";
+    const peerReview = raw.peerReview === true;
 
-    if (!title?.trim()) {
-      return res.status(400).json({ error: "title is required" });
+    if (title.length < 5 || title.length > 240) {
+      res.status(400).json({ error: "Title must be between 5 and 240 characters" }); return;
+    }
+    const wordCount = content.split(/\s+/).filter(Boolean).length;
+    if (wordCount < 500 || content.length > 100_000) {
+      res.status(400).json({ error: "Article content must contain at least 500 words and cannot exceed 100,000 characters" }); return;
+    }
+    if (excerpt.length > 1000 || category.length > 100) {
+      res.status(400).json({ error: "Excerpt or category is too long" }); return;
+    }
+    if (imageUrl) {
+      try {
+        const parsed = new URL(imageUrl);
+        if (!["http:", "https:"].includes(parsed.protocol) || imageUrl.length > 2048) throw new Error("invalid");
+      } catch {
+        res.status(400).json({ error: "Cover image must be a valid http or https URL" }); return;
+      }
     }
 
-    // Toxicity check (blocking)
-    const toxicityResult = checkToxicity(`${title ?? ""} ${content ?? ""}`);
+    const toxicityResult = checkToxicity(`${title} ${content}`);
     if (toxicityResult.blocked) {
-      return res.status(400).json({ error: "Your article contains content that violates our community guidelines. Please revise it before publishing." });
+      res.status(400).json({ error: "Your article contains content that violates our community guidelines. Please revise it before publishing." }); return;
     }
-
-    // Source requirement: articles ≥ 1000 words must include at least one URL
-    const sourceCheck = checkSourceRequirement(content ?? "", 1000);
+    const sourceCheck = checkSourceRequirement(content, 1000);
     if (sourceCheck.required && !sourceCheck.hasSources) {
-      return res.status(400).json({ error: "Articles of 1000 or more words must include at least one source link (starting with https://). Please cite your sources." });
+      res.status(400).json({ error: "Articles of 1000 or more words must include at least one source link starting with https://" }); return;
     }
-
-    // AI content detection (non-blocking — flags for human review)
-    const aiResult = detectAiContent(`${title ?? ""} ${content ?? ""}`);
-
-    // Calculate read time from word count (200 words per minute)
-    const wordCount = (content ?? "").trim().split(/\s+/).filter(Boolean).length;
+    const aiResult = detectAiContent(`${title} ${content}`);
     const readTime = Math.max(1, Math.ceil(wordCount / 200));
 
-    // Article insert and counter increment are atomic — both succeed or both roll back.
-    const [article] = await db.transaction(async (tx) => {
+    const article = await db.transaction(async (tx) => {
       const [inserted] = await tx
         .insert(articlesTable)
-        .values({ title: title.trim(), excerpt: excerpt?.trim(), content, category, imageUrl: imageUrl ?? null, authorId: author.id, readTime, likes: 0, toxicityFlagged: toxicityResult.flagged, aiSuspected: aiResult.flagged })
+        .values({
+          title,
+          excerpt: excerpt || null,
+          content,
+          category: category || null,
+          imageUrl: imageUrl || null,
+          authorId: author.id,
+          readTime,
+          likes: 0,
+          toxicityFlagged: toxicityResult.flagged,
+          aiSuspected: aiResult.flagged,
+        })
         .returning();
       await tx
         .update(usersTable)
         .set({ articlesPublished: sql`${usersTable.articlesPublished} + 1` })
         .where(eq(usersTable.id, author.id));
-      return [inserted];
+      if (peerReview) {
+        await tx.insert(articleReviewRequestsTable).values({
+          articleId: inserted.id,
+          requesterId: author.id,
+          status: "pending",
+        });
+      }
+      return inserted;
     });
 
-    // If peer review requested, create a review request
-    if (peerReview) {
-      await db
-        .insert(articleReviewRequestsTable)
-        .values({ articleId: article.id, requesterId: author.id, status: "pending" })
-        .onConflictDoNothing();
-    }
+    await awardRep(authUser.id, "article_created", "Published an article", article.id)
+      .catch((err) => req.log.warn({ err, articleId: article.id }, "Failed to award article-created reputation"));
 
-    return res.status(201).json({
+    res.status(201).json({
       id: article.id,
       title: article.title,
       excerpt: article.excerpt ?? null,
+      content: article.content ?? null,
       imageUrl: article.imageUrl ?? null,
       authorId: author.id,
       authorName: author.name,
@@ -294,17 +338,16 @@ router.post("/articles", async (req, res) => {
     });
   } catch (err) {
     req.log.error({ err }, "Failed to create article");
-    return res.status(500).json({ error: "Failed to create article" });
+    res.status(500).json({ error: "Failed to create article" });
   }
 });
-
 router.post("/articles/:id/like", async (req, res) => {
   const actorId = req.betterAuthSession?.user?.id ?? null;
   if (!actorId) { res.status(401).json({ error: "Sign in to like articles" }); return; }
 
   try {
     const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid article id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid article id" }); return; }
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(2, ${id})`);
       const [article] = await tx.select().from(articlesTable).where(eq(articlesTable.id, id)).limit(1);
@@ -335,7 +378,7 @@ router.post("/articles/:id/like", async (req, res) => {
     const { updated, liked } = result;
     const [author] = await db.select().from(usersTable).where(eq(usersTable.id, updated.authorId)).limit(1);
     if (liked && author?.betterAuthId && author.betterAuthId !== actorId) {
-      awardRep(author.betterAuthId, "article_liked", "Article received a like", updated.id)
+      awardRep(author.betterAuthId, "article_liked", "Article received a like", reputationReference(updated.id, actorId))
         .catch((err) => req.log.warn({ err, articleId: id }, "Failed to award article-like reputation"));
       const [actor] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.betterAuthId, actorId)).limit(1);
       createNotification({
@@ -372,19 +415,34 @@ router.post("/articles/:id/like", async (req, res) => {
 
 router.get("/articles/:id/comments", async (req, res) => {
   const articleId = Number(req.params.id);
-  if (isNaN(articleId)) { res.status(400).json({ error: "Invalid article id" }); return; }
+  if (!Number.isInteger(articleId) || articleId <= 0) {
+    res.status(400).json({ error: "Invalid article id" }); return;
+  }
   try {
+    const [article] = await db
+      .select({ id: articlesTable.id })
+      .from(articlesTable)
+      .where(and(
+        eq(articlesTable.id, articleId),
+        eq(articlesTable.status, "published"),
+        eq(articlesTable.isRemoved, false),
+      ))
+      .limit(1);
+    if (!article) {
+      res.status(404).json({ error: "Published article not found" }); return;
+    }
+
     const rows = await db
       .select()
       .from(commentsTable)
-      .where(eq(commentsTable.articleId, articleId))
+      .where(and(eq(commentsTable.articleId, articleId), eq(commentsTable.isRemoved, false)))
       .orderBy(asc(commentsTable.createdAt));
-    res.json(rows.map(c => ({
-      id: c.id,
-      authorId: c.authorId,
-      authorName: c.authorName,
-      content: c.content,
-      createdAt: c.createdAt.toISOString(),
+    res.json(rows.map((comment) => ({
+      id: comment.id,
+      authorId: comment.authorId,
+      authorName: comment.authorName,
+      content: comment.content,
+      createdAt: comment.createdAt.toISOString(),
     })));
   } catch (err) {
     req.log.error({ err }, "Failed to get article comments");
@@ -393,73 +451,72 @@ router.get("/articles/:id/comments", async (req, res) => {
 });
 
 router.post("/articles/:id/comments", async (req, res) => {
+  const articleId = Number(req.params.id);
+  if (!Number.isInteger(articleId) || articleId <= 0) {
+    res.status(400).json({ error: "Invalid article id" }); return;
+  }
+  const authUser = req.betterAuthSession?.user ?? null;
+  if (!authUser) {
+    res.status(401).json({ error: "Sign in to comment" }); return;
+  }
+  const content = typeof req.body?.content === "string" ? req.body.content.trim() : "";
+  if (!content || content.length > 5000) {
+    res.status(400).json({ error: "Comment is required and cannot exceed 5000 characters" }); return;
+  }
+
   try {
-    const articleId = Number(req.params.id);
-    if (isNaN(articleId)) {
-      res.status(400).json({ error: "Invalid article id" }); return;
-    }
-
-    const [article] = await db
-      .select()
-      .from(articlesTable)
-      .where(eq(articlesTable.id, articleId))
-      .limit(1);
-
+    const [[article], author] = await Promise.all([
+      db.select()
+        .from(articlesTable)
+        .where(and(
+          eq(articlesTable.id, articleId),
+          eq(articlesTable.status, "published"),
+          eq(articlesTable.isRemoved, false),
+        ))
+        .limit(1),
+      jitProvisionUser(authUser),
+    ]);
     if (!article) {
-      res.status(404).json({ error: "Article not found" }); return;
+      res.status(404).json({ error: "Published article not found" }); return;
+    }
+    if (!author) {
+      res.status(503).json({ error: "Could not create user profile" }); return;
     }
 
-    const clerkIdForComment = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkIdForComment) { res.status(401).json({ error: "Sign in to comment" }); return; }
-
-    const { content } = req.body as {
-      content: string;
-    };
-
-    if (!content?.trim()) {
-      res.status(400).json({ error: "content is required" }); return;
-    }
-
-    // Toxicity check (blocking)
     const toxicityResult = checkToxicity(content);
     if (toxicityResult.blocked) {
       res.status(400).json({ error: "Your comment contains content that violates our community guidelines." }); return;
     }
 
-    // Look up DB user from Clerk session for correct authorId
-    let resolvedAuthorId = 0;
-    let resolvedAuthorName = "Unknown";
-    {
-      const [dbUser] = await db
-        .select({ id: usersTable.id, name: usersTable.name })
-        .from(usersTable)
-        .where(eq(usersTable.betterAuthId, clerkIdForComment))
-        .limit(1);
-      if (!dbUser) {
-        const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
-        if (!provisioned) { res.status(503).json({ error: "Could not create user profile" }); return; }
-        resolvedAuthorId = provisioned.id;
-        resolvedAuthorName = provisioned.name;
-      } else {
-        resolvedAuthorId = dbUser.id;
-        resolvedAuthorName = dbUser.name;
-      }
-    }
-
     const [comment] = await db
       .insert(commentsTable)
-      .values({ articleId, authorId: resolvedAuthorId, authorName: resolvedAuthorName, content: content.trim(), isFlagged: toxicityResult.flagged, toxicityFlagged: toxicityResult.flagged })
+      .values({
+        articleId,
+        authorId: author.id,
+        authorName: author.name,
+        content,
+        isFlagged: toxicityResult.flagged,
+        toxicityFlagged: toxicityResult.flagged,
+        wordCount: content.split(/\s+/).filter(Boolean).length,
+      })
       .returning();
 
-    if (clerkIdForComment) {
+    await awardRep(authUser.id, "comment_posted", "Posted an article comment", comment.id)
+      .catch((err) => req.log.warn({ err, commentId: comment.id }, "Failed to award article-comment reputation"));
+    if (content.length >= 200) {
+      await awardRep(authUser.id, "long_comment", "Posted a detailed comment (200+ characters)", comment.id)
+        .catch((err) => req.log.warn({ err, commentId: comment.id }, "Failed to award long-comment reputation"));
+    }
+    if (article.authorId !== author.id) {
       await createNotification({
         targetDbUserId: article.authorId,
-        actorClerkId: clerkIdForComment,
-        actorDisplayName: resolvedAuthorName,
+        actorClerkId: authUser.id,
+        actorDisplayName: author.name,
         type: "reply",
         title: "Someone commented on your article",
-        body: `${resolvedAuthorName}: "${content.substring(0, 80)}${content.length > 80 ? "…" : ""}"`,
-      }, req.log);
+        body: `${author.name}: "${content.slice(0, 80)}${content.length > 80 ? "…" : ""}"`,
+        batchKey: `article_comment:${articleId}`,
+      }, req.log).catch((err) => req.log.warn({ err, commentId: comment.id }, "Failed to send article-comment notification"));
     }
 
     res.status(201).json({
@@ -477,44 +534,72 @@ router.post("/articles/:id/comments", async (req, res) => {
     res.status(500).json({ error: "Failed to create article comment" });
   }
 });
-
 router.delete("/articles/:id", async (req, res) => {
   const id = Number(req.params.id);
-  if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+  if (!Number.isInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid article id" }); return;
+  }
   try {
-    const userId = req.betterAuthSession?.user?.id ?? null;
-    if (!userId) {
+    const authUser = req.betterAuthSession?.user ?? null;
+    if (!authUser) {
       res.status(401).json({ error: "Sign in required" }); return;
     }
-    const [dbUser] = await db.select().from(usersTable).where(eq(usersTable.betterAuthId, userId)).limit(1);
+    const dbUser = await jitProvisionUser(authUser);
     if (!dbUser) {
-      res.status(401).json({ error: "User not found" }); return;
+      res.status(503).json({ error: "Could not load your user profile" }); return;
     }
-    const [article] = await db.select().from(articlesTable).where(eq(articlesTable.id, id)).limit(1);
-    if (!article) {
-      res.status(404).json({ error: "Article not found" }); return;
-    }
-    if (article.authorId !== dbUser.id) {
-      res.status(403).json({ error: "Not the article owner" }); return;
-    }
-    await db.transaction(async (tx) => {
-      await tx.delete(articlesTable).where(eq(articlesTable.id, id));
+
+    const result = await db.transaction(async (tx) => {
+      const [article] = await tx
+        .select()
+        .from(articlesTable)
+        .where(eq(articlesTable.id, id))
+        .limit(1);
+      if (!article || article.isRemoved) return "missing" as const;
+      if (article.authorId !== dbUser.id) return "forbidden" as const;
+
+      await tx
+        .update(articlesTable)
+        .set({ isRemoved: true, removedReason: "Deleted by article author" })
+        .where(eq(articlesTable.id, id));
       await tx
         .update(usersTable)
-        .set({ articlesPublished: sql`(SELECT count(*)::int FROM ${articlesTable} WHERE ${articlesTable.authorId} = ${dbUser.id} AND ${articlesTable.status} = 'published' AND ${articlesTable.isRemoved} = false)` })
+        .set({ articlesPublished: sql`greatest(${usersTable.articlesPublished} - 1, 0)` })
         .where(eq(usersTable.id, dbUser.id));
+      return "deleted" as const;
     });
+
+    if (result === "missing") {
+      res.status(404).json({ error: "Article not found" }); return;
+    }
+    if (result === "forbidden") {
+      res.status(403).json({ error: "Not the article owner" }); return;
+    }
     res.json({ success: true });
   } catch (err) {
     req.log.error({ err }, "Failed to delete article");
     res.status(500).json({ error: "Failed to delete article" });
   }
 });
-
 router.get("/articles/:id/annotations", async (req, res) => {
   try {
     const articleId = Number(req.params.id);
-    if (isNaN(articleId)) { res.status(400).json({ error: "Invalid article id" }); return; }
+    if (!Number.isInteger(articleId) || articleId <= 0) {
+      res.status(400).json({ error: "Invalid article id" }); return;
+    }
+
+    const [article] = await db
+      .select({ id: articlesTable.id })
+      .from(articlesTable)
+      .where(and(
+        eq(articlesTable.id, articleId),
+        eq(articlesTable.status, "published"),
+        eq(articlesTable.isRemoved, false),
+      ))
+      .limit(1);
+    if (!article) {
+      res.status(404).json({ error: "Published article not found" }); return;
+    }
 
     const rows = await db
       .select({
@@ -533,68 +618,67 @@ router.get("/articles/:id/annotations", async (req, res) => {
       .where(eq(annotationsTable.articleId, articleId))
       .orderBy(asc(annotationsTable.paragraphIndex), asc(annotationsTable.createdAt));
 
-    const result = rows.map(r => ({
-      id: r.id,
-      articleId: r.articleId,
-      userId: r.userId,
-      selectedText: r.selectedText,
-      comment: r.comment,
-      paragraphIndex: r.paragraphIndex,
-      createdAt: r.createdAt.toISOString(),
-      authorName: r.authorName ?? "Unknown",
-      authorAvatar: r.authorAvatar ?? null,
-    }));
-
-    res.json(result);
+    res.json(rows.map((row) => ({
+      id: row.id,
+      articleId: row.articleId,
+      userId: row.userId,
+      selectedText: row.selectedText,
+      comment: row.comment,
+      paragraphIndex: row.paragraphIndex,
+      createdAt: row.createdAt.toISOString(),
+      authorName: row.authorName ?? "Unknown",
+      authorAvatar: row.authorAvatar ?? null,
+    })));
   } catch (err) {
     req.log.error({ err }, "Failed to get annotations");
     res.status(500).json({ error: "Failed to get annotations" });
   }
 });
-
 router.post("/articles/:id/annotations", async (req, res) => {
   try {
     const articleId = Number(req.params.id);
-    if (isNaN(articleId)) { res.status(400).json({ error: "Invalid article id" }); return; }
+    if (!Number.isInteger(articleId) || articleId <= 0) {
+      res.status(400).json({ error: "Invalid article id" }); return;
+    }
+    const authUser = req.betterAuthSession?.user ?? null;
+    if (!authUser) {
+      res.status(401).json({ error: "Sign in to annotate" }); return;
+    }
+    const dbUser = await jitProvisionUser(authUser);
+    if (!dbUser) {
+      res.status(503).json({ error: "Could not load your user profile" }); return;
+    }
 
-    const clerkId = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkId) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-    const [dbUser] = await db
-      .select({ id: usersTable.id, name: usersTable.name, avatarUrl: usersTable.avatarUrl })
-      .from(usersTable)
-      .where(eq(usersTable.betterAuthId, clerkId))
-      .limit(1);
-
-    if (!dbUser) { res.status(401).json({ error: "User not found" }); return; }
-
-    const { selectedText, comment, paragraphIndex } = req.body as {
-      selectedText: string;
-      comment: string;
-      paragraphIndex: number;
-    };
-
-    if (!selectedText?.trim() || !comment?.trim()) {
-      res.status(400).json({ error: "selectedText and comment are required" }); return;
+    const selectedText = typeof req.body?.selectedText === "string" ? req.body.selectedText.trim() : "";
+    const comment = typeof req.body?.comment === "string" ? req.body.comment.trim() : "";
+    const paragraphIndex = Number(req.body?.paragraphIndex);
+    if (!selectedText || selectedText.length > 1000 || !comment || comment.length > 5000) {
+      res.status(400).json({ error: "Selected text and annotation are required and must be within the allowed length" }); return;
+    }
+    if (!Number.isInteger(paragraphIndex) || paragraphIndex < 0) {
+      res.status(400).json({ error: "Invalid paragraph index" }); return;
     }
 
     const [article] = await db
-      .select({ id: articlesTable.id })
+      .select({ content: articlesTable.content, excerpt: articlesTable.excerpt })
       .from(articlesTable)
-      .where(eq(articlesTable.id, articleId))
+      .where(and(
+        eq(articlesTable.id, articleId),
+        eq(articlesTable.status, "published"),
+        eq(articlesTable.isRemoved, false),
+      ))
       .limit(1);
-
-    if (!article) { res.status(404).json({ error: "Article not found" }); return; }
+    if (!article) {
+      res.status(404).json({ error: "Published article not found" }); return;
+    }
+    const paragraphs = (article.content?.trim() || article.excerpt?.trim() || "").split("\n\n");
+    if (!paragraphs[paragraphIndex]?.includes(selectedText)) {
+      res.status(400).json({ error: "Selected text does not belong to the specified article paragraph" }); return;
+    }
 
     const [annotation] = await db
       .insert(annotationsTable)
-      .values({
-        articleId,
-        userId: dbUser.id,
-        selectedText: selectedText.trim(),
-        comment: comment.trim(),
-        paragraphIndex: paragraphIndex ?? 0,
-      })
+      .values({ articleId, userId: dbUser.id, selectedText, comment, paragraphIndex })
       .returning();
 
     res.status(201).json({
@@ -613,11 +697,10 @@ router.post("/articles/:id/annotations", async (req, res) => {
     res.status(500).json({ error: "Failed to create annotation" });
   }
 });
-
 router.delete("/annotations/:id", async (req, res) => {
   try {
     const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid annotation id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid annotation id" }); return; }
 
     const clerkId = req.betterAuthSession?.user?.id ?? null;
     if (!clerkId) { res.status(401).json({ error: "Unauthorized" }); return; }

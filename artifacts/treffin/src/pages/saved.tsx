@@ -25,9 +25,9 @@ export default function Saved() {
     return matchesType && matchesSearch;
   });
 
-  const handleRemove = (id: number, e: React.MouseEvent) => {
+  const handleRemove = (item: { id: number; type: "post" | "article" | "debate" }, e: React.MouseEvent) => {
     e.stopPropagation();
-    removeSaved(id);
+    removeSaved(item.id, item.type);
     toast({ title: "Removed from saved" });
   };
 
@@ -118,7 +118,7 @@ export default function Saved() {
                       </div>
                       <button
                         className="shrink-0 p-1.5 rounded-full hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
-                        onClick={(e) => handleRemove(item.id, e)}
+                        onClick={(e) => handleRemove(item, e)}
                         data-testid={`button-remove-saved-${item.id}`}
                         title="Remove from saved"
                       >
