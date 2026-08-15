@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, useSearch } from "wouter";
-import { authClient } from "@/lib/auth-client";
+import { authClient, rememberAuthToken } from "@/lib/auth-client";
 import { AuthShell, InputField, PrimaryButton, inputFocusHandlers, inputStyle } from "@/components/auth/auth-shell";
 
 export default function ResetPasswordPage() {
@@ -16,36 +16,38 @@ export default function ResetPasswordPage() {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!token) return;
+    if (!token || pending) return;
     if (password !== confirmation) {
       setError("The passwords do not match.");
       return;
     }
     setPending(true);
     setError("");
-    const result = await authClient.resetPassword({ newPassword: password, token });
-    setPending(false);
-    if (result.error) {
-      setError(result.error.message ?? "This reset link is invalid or has expired.");
-      return;
+    try {
+      const result = await authClient.resetPassword({ newPassword: password, token });
+      if (result.error) {
+        setError(result.error.message ?? "This reset link is invalid or has expired.");
+        return;
+      }
+      rememberAuthToken(null);
+      setPassword("");
+      setConfirmation("");
+      setComplete(true);
+    } catch {
+      setError("The authentication service could not be reached. Check your connection and try again.");
+    } finally {
+      setPending(false);
     }
-    setComplete(true);
   }
 
   return (
     <AuthShell>
-      <h1 className="text-[1.65rem] font-bold text-foreground mb-1">Choose a new password</h1>
-      <p className="text-muted-foreground text-sm mb-8">Use at least eight characters.</p>
+      <h1 className="mb-1 text-[1.65rem] font-bold text-foreground">Choose a new password</h1>
+      <p className="mb-8 text-sm text-muted-foreground">Use between eight and 128 characters.</p>
       {invalidToken ? (
-        <div className="space-y-5">
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400" role="alert">This password reset link is invalid or has expired.</div>
-          <Link href="/forgot-password" className="block text-center text-sm font-semibold text-indigo-400 hover:text-indigo-300">Request a new link</Link>
-        </div>
+        <div className="space-y-5"><div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400" role="alert">This password reset link is invalid or has expired.</div><Link href="/forgot-password" className="block text-center text-sm font-semibold text-indigo-400 hover:text-indigo-300">Request a new link</Link></div>
       ) : complete ? (
-        <div className="space-y-5" aria-live="polite">
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">Your password was changed and existing sessions were signed out.</div>
-          <Link href="/sign-in" className="block text-center text-sm font-semibold text-indigo-400 hover:text-indigo-300">Sign in with your new password</Link>
-        </div>
+        <div className="space-y-5" aria-live="polite"><div className="rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">Your password was changed and existing sessions were signed out.</div><Link href="/sign-in" className="block text-center text-sm font-semibold text-indigo-400 hover:text-indigo-300">Sign in with your new password</Link></div>
       ) : (
         <form onSubmit={submit} className="flex flex-col gap-4">
           <InputField label="New password" htmlFor="reset-password"><input id="reset-password" required minLength={8} maxLength={128} type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} className="w-full rounded-xl px-4 py-3 text-sm text-foreground outline-none transition-all" style={inputStyle} {...inputFocusHandlers} /></InputField>

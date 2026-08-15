@@ -1,94 +1,128 @@
-/**
- * Web Push helpers for the Treffin frontend.
- *
- * Usage:
- *   import { enablePushNotifications } from "@/lib/push";
- *   const granted = await enablePushNotifications();
- */
+import { authenticatedFetch } from "@/lib/api-url";
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
 
-/**
- * The Push API needs the VAPID public key as a Uint8Array.
- * Convert from base64url (the standard VAPID wire format) to Uint8Array.
- */
 function urlBase64ToUint8Array(base64url: string): Uint8Array {
   const padding = "=".repeat((4 - (base64url.length % 4)) % 4);
   const base64 = (base64url + padding).replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(base64);
-  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  return Uint8Array.from(raw, (character) => character.charCodeAt(0));
+}
+
+function applicationServerKeysMatch(
+  existing: ArrayBuffer | null,
+  expected: Uint8Array,
+): boolean {
+  if (!existing) return false;
+  const current = new Uint8Array(existing);
+  return current.length === expected.length && current.every((value, index) => value === expected[index]);
+}
+
+export function isPushAvailable(): boolean {
+  return typeof window !== "undefined"
+    && "Notification" in window
+    && "serviceWorker" in navigator
+    && "PushManager" in window
+    && Boolean(VAPID_PUBLIC_KEY);
 }
 
 /**
- * Request notification permission, subscribe this device via the Web Push API,
- * and register the resulting subscription with the Treffin server.
- *
- * Returns `true` if the user granted permission AND the subscription was saved
- * successfully. Returns `false` on any failure (permission denied, browser
- * doesn't support Push, VAPID key missing, network error, etc.).
+ * Request permission, create (or repair) the browser subscription, and persist
+ * it against the currently authenticated Treffin account.
  */
 export async function enablePushNotifications(): Promise<boolean> {
+  if (!isPushAvailable() || !VAPID_PUBLIC_KEY) return false;
+
+  try {
+    let permission = Notification.permission;
+    if (permission === "default") permission = await Notification.requestPermission();
+    if (permission !== "granted") return false;
+
+    const registration = await navigator.serviceWorker.ready;
+    const expectedKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+    let subscription = await registration.pushManager.getSubscription();
+
+    // A VAPID key rotation invalidates an otherwise present browser
+    // subscription. Replace it before syncing with the API.
+    if (
+      subscription
+      && !applicationServerKeysMatch(subscription.options.applicationServerKey, expectedKey)
+    ) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
+
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: expectedKey.buffer as ArrayBuffer,
+      });
+    }
+
+    const response = await authenticatedFetch("/api/push/subscribe", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(subscription.toJSON()),
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.error("[push] enablePushNotifications failed", error);
+    return false;
+  }
+}
+
+/** Mobile browsers require service-worker notifications; `new Notification()`
+ * is not supported by Android Chrome and installed iOS web apps. */
+export async function showLocalNotification(
+  title: string,
+  options: NotificationOptions = {},
+): Promise<boolean> {
   if (
-    !("serviceWorker" in navigator) ||
-    !("PushManager" in window) ||
-    !VAPID_PUBLIC_KEY
+    typeof window === "undefined"
+    || !("Notification" in window)
+    || !("serviceWorker" in navigator)
+    || Notification.permission !== "granted"
   ) {
     return false;
   }
 
-  let permission = Notification.permission;
-  if (permission === "default") {
-    permission = await Notification.requestPermission();
-  }
-  if (permission !== "granted") return false;
-
   try {
-    const reg = await navigator.serviceWorker.ready;
-
-    // Re-use an existing subscription if one already exists for this device
-    let sub = await reg.pushManager.getSubscription();
-    if (!sub) {
-      sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY).buffer as ArrayBuffer,
-      });
-    }
-
-    const res = await fetch(`${API_BASE}/api/push/subscribe`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sub.toJSON()),
+    const registration = await navigator.serviceWorker.ready;
+    const suppliedData = options.data && typeof options.data === "object"
+      ? options.data as Record<string, unknown>
+      : {};
+    await registration.showNotification(title, {
+      icon: `${import.meta.env.BASE_URL}pwa-icon-192.png`,
+      badge: `${import.meta.env.BASE_URL}pwa-icon-192.png`,
+      ...options,
+      data: { url: "/notifications", ...suppliedData },
     });
-
-    return res.ok;
-  } catch (err) {
-    console.error("[push] enablePushNotifications failed", err);
+    return true;
+  } catch (error) {
+    console.error("[push] local notification failed", error);
     return false;
   }
 }
 
-/**
- * Unsubscribe this device from push notifications and remove the subscription
- * from the server. Safe to call even if not subscribed.
- */
 export async function disablePushNotifications(): Promise<void> {
-  if (!("serviceWorker" in navigator)) return;
-  try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (!sub) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
-    await fetch(`${API_BASE}/api/push/unsubscribe`, {
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+
+    await authenticatedFetch("/api/push/unsubscribe", {
       method: "DELETE",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ endpoint: sub.endpoint }),
-    }).catch(() => {});
+      body: JSON.stringify({ endpoint: subscription.endpoint }),
+    }).catch(() => undefined);
 
-    await sub.unsubscribe();
-  } catch (err) {
-    console.error("[push] disablePushNotifications failed", err);
+    await subscription.unsubscribe();
+  } catch (error) {
+    console.error("[push] disablePushNotifications failed", error);
   }
 }

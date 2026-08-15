@@ -11,6 +11,8 @@ interface AdminDebate {
   isFeatured: boolean;
   createdAt: string;
   hasOutcome: boolean;
+  mathProblemId: number | null;
+  winnerStatus: "undecided" | "creator_declared" | "pending_admin" | "admin_decided";
 }
 
 interface DebateComment {
@@ -100,7 +102,7 @@ export default function Outcomes() {
               <p className="font-medium text-foreground text-sm line-clamp-2">{d.title}</p>
               <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className="text-xs text-muted-foreground">{d.category} · {d.participantCount} participants</span>
-                {d.hasOutcome ? (
+                {d.hasOutcome || d.winnerStatus !== "undecided" ? (
                   <span className="text-xs px-2 py-0.5 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded-full">Adjudicated</span>
                 ) : (
                   <span className="text-xs px-2 py-0.5 bg-amber-500/15 text-amber-400 border border-amber-500/30 rounded-full">Pending</span>
@@ -129,7 +131,7 @@ export default function Outcomes() {
           >
             <div className="p-5 border-b border-border flex items-start justify-between sticky top-0 bg-card z-10">
               <div className="min-w-0 flex-1 pr-3">
-                <h3 className="font-semibold text-foreground">Adjudicate</h3>
+                <h3 className="font-semibold text-foreground">{panel.debate.mathProblemId ? "Conclude Elegance Battle" : "Adjudicate"}</h3>
                 <p className="text-sm text-muted-foreground mt-0.5 leading-snug line-clamp-2">{panel.debate.title}</p>
               </div>
               <button onClick={() => setPanel(null)} className="text-muted-foreground hover:text-foreground p-1 shrink-0">
@@ -139,35 +141,42 @@ export default function Outcomes() {
               </button>
             </div>
             <div className="p-5 space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Winner</label>
-                <div className="flex gap-2">
-                  {(["support", "against", "draw"] as const).map((side) => (
-                    <button
-                      key={side}
-                      onClick={() => setPanel((p) => p ? { ...p, winningSide: side } : p)}
-                      className={`flex-1 py-2.5 rounded-lg text-sm font-medium border capitalize transition-colors ${
-                        panel.winningSide === side
-                          ? side === "support" ? "bg-indigo-500 text-white border-indigo-500" : side === "against" ? "bg-rose-500 text-white border-rose-500" : "bg-secondary text-foreground border-border"
-                          : "bg-background border-border text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      {side}
-                    </button>
-                  ))}
+              {panel.debate.mathProblemId ? (
+                <div className="rounded-lg border border-indigo-500/25 bg-indigo-500/10 px-3 py-2.5 text-xs text-muted-foreground">
+                  Category awards come from the four live solution-vote axes. Write the final mathematical verdict below; no support/against side is used.
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-2">Winner</label>
+                  <div className="flex gap-2">
+                    {(["support", "against", "draw"] as const).map((side) => (
+                      <button
+                        key={side}
+                        onClick={() => setPanel((p) => p ? { ...p, winningSide: side } : p)}
+                        className={`flex-1 py-2.5 rounded-lg text-sm font-medium border capitalize transition-colors ${
+                          panel.winningSide === side
+                            ? side === "support" ? "bg-indigo-500 text-white border-indigo-500" : side === "against" ? "bg-rose-500 text-white border-rose-500" : "bg-secondary text-foreground border-border"
+                            : "bg-background border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {side}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1.5">Justification</label>
                 <textarea
                   value={panel.justification}
                   onChange={(e) => setPanel((p) => p ? { ...p, justification: e.target.value } : p)}
                   rows={4}
+                  maxLength={panel.debate.mathProblemId ? 4000 : 5000}
                   className="w-full px-3 py-2.5 bg-background border border-border rounded-lg text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 text-sm resize-none"
                   placeholder="Explain the ruling…"
                 />
               </div>
-              {panel.comments.length > 0 && (
+              {!panel.debate.mathProblemId && panel.comments.length > 0 && (
                 <>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Top Support Argument</label>
@@ -206,7 +215,7 @@ export default function Outcomes() {
                 disabled={submitting || !panel.justification.trim()}
                 className="w-full py-3 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
-                {submitting ? "Publishing…" : "Publish Ruling"}
+                {submitting ? "Publishing…" : panel.debate.mathProblemId ? "Publish Math Verdict" : "Publish Ruling"}
               </button>
             </div>
           </div>

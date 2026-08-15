@@ -62,6 +62,77 @@ test.describe("authenticated Treffin contracts", () => {
     await expect(page.getByText("Join the conversation")).toHaveCount(0);
     if (isMobile) await expectNoHorizontalOverflow(page);
   });
+  test("home restores authoritative daily vote and weekly submission state", async ({ page, isMobile }) => {
+    await page.addInitScript(() => localStorage.setItem("treffin_daily_vote_44", "support"));
+    await page.route("**/api/stats/daily-question", (route) => json(route, {
+      id: 44,
+      question: "Should public reasoning be evidence-led?",
+      supportPercent: 40,
+      againstPercent: 60,
+      participantCount: 25,
+      isLive: true,
+      imageUrl: null,
+      myVote: "against",
+    }));
+    await page.route("**/api/stats/weekly-challenge", (route) => json(route, {
+      id: 5,
+      question: "What makes disagreement productive?",
+      startDate: new Date(Date.now() - 3_600_000).toISOString(),
+      endDate: new Date(Date.now() + 3_600_000).toISOString(),
+      isActive: true,
+      winnerUserId: null,
+      winnerName: null,
+      winnerAvatar: null,
+      winnerResponse: null,
+      hasSubmitted: true,
+    }));
+
+    await page.goto("/");
+    await expect(page.getByText("Against 60%", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Against/ })).toBeDisabled();
+    await expect(page.getByText("Entry submitted. Good luck!", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("input-challenge-response")).toHaveCount(0);
+    if (isMobile) await expectNoHorizontalOverflow(page);
+  });
+
+  test("home records a first daily vote once and uses the server result", async ({ page }) => {
+    let voteRequests = 0;
+    await page.route("**/api/stats/daily-question**", async (route) => {
+      if (route.request().method() === "POST") {
+        voteRequests += 1;
+        return json(route, {
+          id: 45,
+          question: "Should public reasoning be evidence-led?",
+          supportPercent: 67,
+          againstPercent: 33,
+          participantCount: 3,
+          isLive: true,
+          imageUrl: null,
+          myVote: "support",
+        });
+      }
+      return json(route, {
+        id: 45,
+        question: "Should public reasoning be evidence-led?",
+        supportPercent: 50,
+        againstPercent: 50,
+        participantCount: 2,
+        isLive: true,
+        imageUrl: null,
+        myVote: null,
+      });
+    });
+
+    await page.goto("/");
+    const support = page.getByRole("button", { name: /Support/ });
+    await support.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      (button as HTMLButtonElement).click();
+    });
+    await expect.poll(() => voteRequests).toBe(1);
+    await expect(page.getByText("Support 67%", { exact: true })).toBeVisible();
+    await expect(support).toBeDisabled();
+  });
   test("profile renders database data and persists through the authenticated user API", async ({ page }) => {
     let updateBody: string | null = null;
     await page.route("**/api/users/me", async (route) => {
@@ -177,9 +248,98 @@ test.describe("authenticated Treffin contracts", () => {
     await page.getByTestId("button-peer-review").click();
     await expect.poll(() => reviewRequests).toBe(1);
   });
-  test("article editor uses a single-column phone layout without horizontal overflow", async ({ page, isMobile }) => {
+  test("a first debate vote is submitted once and immediately becomes the saved stance", async ({ page }) => {
+    let voteRequests = 0;
+    let leaveRequests = 0;
+    let savedVote: "support" | "against" | null = null;
+    const debate = {
+      id: 12,
+      title: "Should evidence guide public policy?",
+      description: "A regression fixture for first-time voting.",
+      category: "Philosophy",
+      supportPercent: 50,
+      againstPercent: 50,
+      participantCount: 2,
+      isLive: true,
+      imageUrl: null,
+      rank: null,
+      isTrending: false,
+      isFeatured: false,
+      endsAt: null,
+      isFrozen: false,
+      frozenReason: null,
+      isAnonymous: false,
+      sourcesRequired: false,
+      closingArgMinHours: 0,
+      contentWarning: null,
+      healthScore: 100,
+      mathProblemId: null,
+      creatorUserId: "another-user",
+      creatorIsModerator: false,
+      winnerAuthority: "creator",
+      winnerStatus: "undecided",
+      endedEarly: false,
+      endedAt: null,
+      wordLimit: null,
+      viewerCount: 1,
+    };
+
+    await page.route("**/api/debates/12", (route) => json(route, debate));
+    await page.route("**/api/debates/12/outcome", (route) => json(route, null));
+    await page.route("**/api/debates/12/my-vote", (route) => json(route, { side: savedVote }));
+    await page.route("**/api/debates/12/agreements", (route) => json(route, { canPost: false, agreements: [] }));
+    await page.route("**/api/debates/12/leave", async (route) => {
+      leaveRequests += 1;
+      savedVote = null;
+      await json(route, { ...debate, supportPercent: 50, againstPercent: 50, participantCount: 2 });
+    });
+    await page.route("**/api/debates/12/vote", async (route) => {
+      voteRequests += 1;
+      const body = route.request().postDataJSON() as { vote: "support" | "against" };
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      savedVote = body.vote;
+      await json(route, { ...debate, supportPercent: 67, againstPercent: 33, participantCount: 3 });
+    });
+
+    await page.goto("/debates/12");
+    const supportButton = page.getByTestId("button-vote-support");
+    await expect(supportButton).toBeEnabled();
+    await supportButton.evaluate((button) => {
+      (button as HTMLButtonElement).click();
+      (button as HTMLButtonElement).click();
+    });
+
+    await expect.poll(() => voteRequests).toBe(1);
+    await expect(supportButton).toContainText("Supporting");
+    await expect(page.getByTestId("button-vote-against")).toBeDisabled();
+    await page.reload();
+    await expect(page.getByTestId("button-vote-support")).toContainText("Supporting");
+
+    await page.getByTestId("button-leave-debate").click();
+    await expect.poll(() => leaveRequests).toBe(1);
+    await expect(page.getByTestId("button-vote-against")).toBeEnabled();
+    await page.getByTestId("button-vote-against").evaluate((button) => (button as HTMLButtonElement).click());
+    await expect.poll(() => voteRequests).toBe(2);
+    await expect(page.getByTestId("button-vote-against")).toContainText("Opposing");
+  });
+  test("article editor isolates drafts by account and uses a contained phone layout", async ({ page, isMobile }) => {
     test.skip(!isMobile, "mobile-project check");
+    await page.addInitScript(() => {
+      const draft = (title: string) => JSON.stringify({ title, body: "", selectedTags: [], peerReview: false, imageUrl: "", savedAt: Date.now() });
+      localStorage.setItem("treffin:article-draft-v2:other-user", draft("Another member's private draft"));
+      localStorage.setItem("treffin:article-draft-v2:auth-user", draft("My private draft"));
+    });
     await page.goto("/articles/new");
+    const titleInput = page.locator('input[placeholder^="Article title"]');
+    await expect(titleInput).toHaveValue("My private draft");
+    await expect(titleInput).not.toHaveValue("Another member's private draft");
+    await titleInput.fill("My updated draft");
+    await page.getByRole("button", { name: "Save Draft", exact: true }).click();
+    const storedTitle = await page.evaluate(() => {
+      const value = localStorage.getItem("treffin:article-draft-v2:auth-user");
+      return value ? JSON.parse(value).title : null;
+    });
+    expect(storedTitle).toBe("My updated draft");
     await expect(page.getByPlaceholder("Article title…")).toBeVisible();
 
     const layout = await page.evaluate(() => {
@@ -193,5 +353,58 @@ test.describe("authenticated Treffin contracts", () => {
     });
     expect(layout.overflow).toBeLessThanOrEqual(1);
     expect(layout.asideTop).toBeGreaterThanOrEqual(layout.mainBottom - 1);
+  });
+  test("Elegant Battle records the first vote immediately and remains phone-contained", async ({ page, isMobile }) => {
+    let elegantVotes = 0;
+    const fullResponse = () => ({
+      problemId: 7,
+      problemTitle: "Prove that the sample identity is invariant",
+      battle: { debateId: 70, isLive: true, isEnded: false, verdict: null, verdictAuthor: null, canParticipate: true, canConclude: false },
+      solutions: [
+        { id: 11, userId: "author-a", userName: "Ada", approach: "Algebraic", body: "**Step 1:** Expand both sides.\n\n**Step 2:** Cancel equal terms.", steps: ["**Step 1:** Expand both sides.", "**Step 2:** Cancel equal terms."], stepSoundness: [{ up: 0, down: 0 }, { up: 0, down: 0 }], votes: { elegant: elegantVotes, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 90 },
+        { id: 12, userId: "author-b", userName: "Emmy", approach: "Geometric", body: "**Step 1:** Construct the symmetry.\n\n**Step 2:** Read the invariant.", steps: ["**Step 1:** Construct the symmetry.", "**Step 2:** Read the invariant."], stepSoundness: [{ up: 0, down: 0 }, { up: 0, down: 0 }], votes: { elegant: 0, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 75 },
+      ],
+      arguments: [],
+      myAxisVotes: { elegant: elegantVotes ? 11 : null, clear: null, rigorous: null, efficient: null },
+      categories: { mostElegant: elegantVotes ? { solutionId: 11, votes: elegantVotes } : null, mostRigorous: null, clearest: null, mostEfficient: null },
+    });
+    await page.route("**/api/math/problems/7/elegance-battle/full", (route) => json(route, fullResponse()));
+    await page.route("**/api/math/problems/7/showdown/vote", async (route) => {
+      elegantVotes = 1;
+      return json(route, {
+        problemId: 7,
+        problemTitle: fullResponse().problemTitle,
+        solutions: fullResponse().solutions.map((solution) => ({
+          id: solution.id,
+          userId: solution.userId,
+          userName: solution.userName,
+          userAvatar: null,
+          body: solution.body,
+          approach: solution.approach,
+          stepCount: solution.steps.length,
+          isFastest: solution.id === 12,
+          solvingTime: solution.solvingTime,
+          votes: solution.votes,
+        })),
+        myVotes: { elegant: 11, clear: null, rigorous: null, efficient: null },
+      });
+    });
+
+    await page.goto("/math/problem/7/elegance-battle");
+    await expect(page.getByText("ELEGANCE BATTLE", { exact: true })).toBeVisible();
+    const elegantButton = page.getByRole("button", { name: /Elegant/i }).first();
+    await elegantButton.click();
+    await expect(elegantButton).toContainText("1");
+
+    if (isMobile) {
+      await expectNoHorizontalOverflow(page);
+      await page.getByRole("button", { name: /0 notes/i }).first().click();
+      const composer = page.getByPlaceholder(/Annotate your take/i);
+      await expect(composer).toBeVisible();
+      await expect.poll(() => composer.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.bottom <= window.innerHeight + 1;
+      })).toBe(true);
+    }
   });
 });

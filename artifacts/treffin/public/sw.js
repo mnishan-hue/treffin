@@ -1,145 +1,182 @@
-// Treffin service worker
-// v3: network-first navigation fixes blank-page-after-install bug where stale
-// cached HTML referenced old (now-404) hashed JS files after a new deploy.
+// Treffin installed-app service worker.
+const STATIC_CACHE = "treffin-static-v5";
+const DYNAMIC_CACHE = "treffin-dynamic-v5";
+const CACHE_PREFIX = "treffin-";
+const MAX_DYNAMIC_ENTRIES = 100;
+const APP_ROOT = new URL("./", self.registration.scope);
+const BUILD_MANIFEST_URL = new URL("asset-manifest.json", APP_ROOT);
+const ASSET_PATH = new URL("assets/", APP_ROOT).pathname;
 
-const STATIC_CACHE  = "treffin-static-v4";
-const DYNAMIC_CACHE = "treffin-dynamic-v4";
+const appUrl = (path = "") => new URL(String(path).replace(/^\/+/, ""), APP_ROOT).href;
+const CORE_FILES = [
+  appUrl(),
+  appUrl("manifest.json"),
+  appUrl("pwa-icon-192.png"),
+  appUrl("pwa-icon-512.png"),
+  appUrl("pwa-maskable-512.png"),
+];
 
-// Minimal shell pre-cached on install
-const PRECACHE = ["/", "/manifest.json", "/treffin-mark.png"];
+async function precacheApplication() {
+  const cache = await caches.open(STATIC_CACHE);
+  await Promise.allSettled(CORE_FILES.map((url) => cache.add(url)));
 
-// ── Install ──────────────────────────────────────────────────────────────────
+  // Vite emits this build manifest. Cache every entry, CSS file, image, and
+  // lazy route chunk so a first installed-app launch also works offline.
+  try {
+    const response = await fetch(BUILD_MANIFEST_URL, { cache: "no-store" });
+    if (!response.ok) return;
+    const manifest = await response.json();
+    const files = new Set();
+    Object.values(manifest).forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      [entry.file, ...(entry.css ?? []), ...(entry.assets ?? [])]
+        .filter((file) => typeof file === "string")
+        .forEach((file) => files.add(appUrl(file)));
+    });
+    await Promise.allSettled([...files].map((url) => cache.add(url)));
+  } catch {
+    // Core shell caching still provides a readable offline fallback.
+  }
+}
+
+async function trimCache(name, maximum) {
+  const cache = await caches.open(name);
+  const keys = await cache.keys();
+  await Promise.all(keys.slice(0, Math.max(0, keys.length - maximum)).map((key) => cache.delete(key)));
+}
+
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(STATIC_CACHE)
-      .then((cache) => Promise.allSettled(PRECACHE.map((u) => cache.add(u))))
-      .then(() => self.skipWaiting())
-  );
+  event.waitUntil(precacheApplication().then(() => self.skipWaiting()));
 });
 
-// ── Activate ─────────────────────────────────────────────────────────────────
 self.addEventListener("activate", (event) => {
-  const keep = new Set([STATIC_CACHE, DYNAMIC_CACHE]);
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => !keep.has(k)).map((k) => caches.delete(k))))
-      .then(() => self.clients.claim())
-      .then(async () => {
-        // Tell every open tab a new version is live
-        const clients = await self.clients.matchAll({ type: "window" });
-        clients.forEach((c) => c.postMessage({ type: "SW_UPDATED" }));
-      })
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    const obsolete = keys.filter((key) => key.startsWith(CACHE_PREFIX) && key !== STATIC_CACHE && key !== DYNAMIC_CACHE);
+    await Promise.all(obsolete.map((key) => caches.delete(key)));
+    await self.clients.claim();
+
+    // Do not show an "update ready" banner on a device's first installation.
+    if (obsolete.length > 0) {
+      const windows = await self.clients.matchAll({ type: "window" });
+      windows.forEach((client) => client.postMessage({ type: "SW_UPDATED" }));
+    }
+  })());
 });
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
-
-  // Only handle same-origin GET requests
   if (request.method !== "GET" || url.origin !== self.location.origin) return;
 
-  // ① API — network-only, offline JSON error (never cache API responses)
-  if (url.pathname.startsWith("/api/")) {
-    event.respondWith(
-      fetch(request).catch(() =>
-        new Response(JSON.stringify({ error: "You are offline" }), {
-          status: 503,
-          headers: { "Content-Type": "application/json" },
-        })
-      )
-    );
+  if (url.pathname.startsWith(`${APP_ROOT.pathname}api/`)) {
+    event.respondWith(fetch(request).catch(() => new Response(
+      JSON.stringify({ error: "You are offline" }),
+      { status: 503, headers: { "Content-Type": "application/json" } },
+    )));
     return;
   }
 
-  // ② Hashed static assets (/assets/…) — cache-first (content-hashed, immutable)
-  if (url.pathname.startsWith("/assets/")) {
-    event.respondWith(
-      caches.match(request).then((hit) => {
-        if (hit) return hit;
-        return fetch(request).then(async (res) => {
-          if (res.ok) {
-            const responseForCache = res.clone();
-            const cache = await caches.open(STATIC_CACHE);
-            await cache.put(request, responseForCache);
-          }
-          return res;
-        });
-      })
-    );
+  if (url.pathname.startsWith(ASSET_PATH)) {
+    event.respondWith(caches.match(request, { ignoreVary: true }).then(async (cached) => {
+      if (cached) return cached;
+      const response = await fetch(request);
+      if (response.ok) {
+        const cache = await caches.open(STATIC_CACHE);
+        await cache.put(request, response.clone());
+      }
+      return response;
+    }));
     return;
   }
 
-  // ③ HTML navigation — network-first so a new deploy's HTML always loads.
-  //    Falls back to the cached shell when offline to avoid the blank-page bug.
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then(async (res) => {
-          if (res.ok) {
-            const responseForCache = res.clone();
-            const cache = await caches.open(DYNAMIC_CACHE);
-            await cache.put(request, responseForCache);
-          }
-          return res;
-        })
-        .catch(async () => {
-          const hit = await caches.match(request) ?? await caches.match("/");
-          return hit ?? new Response(
-            "<!doctype html><title>Offline</title><p>Please reconnect to the internet.</p>",
-            { status: 503, headers: { "Content-Type": "text/html" } }
-          );
-        })
-    );
+    event.respondWith(fetch(request).then(async (response) => {
+      if (response.ok) {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        await cache.put(request, response.clone());
+        await trimCache(DYNAMIC_CACHE, MAX_DYNAMIC_ENTRIES);
+      }
+      return response;
+    }).catch(async () => {
+      return await caches.match(request, { ignoreVary: true })
+        ?? await caches.match(appUrl(), { ignoreVary: true })
+        ?? new Response(
+          "<!doctype html><meta name=viewport content='width=device-width'><title>Treffin offline</title><p>Treffin is offline. Please reconnect and try again.</p>",
+          { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+        );
+    }));
     return;
   }
 
-  // ④ Everything else (images, fonts, etc.) — cache-first with network fallback
-  event.respondWith(
-    caches.match(request).then((hit) => {
-      if (hit) return hit;
-      return fetch(request)
-        .then(async (res) => {
-          if (res.ok) {
-            const responseForCache = res.clone();
-            const cache = await caches.open(DYNAMIC_CACHE);
-            await cache.put(request, responseForCache);
-          }
-          return res;
-        })
-        .catch(() => new Response("", { status: 503 }));
-    })
-  );
+  event.respondWith(caches.match(request, { ignoreVary: true }).then(async (cached) => {
+    if (cached) return cached;
+    try {
+      const response = await fetch(request);
+      if (response.ok) {
+        const cache = await caches.open(DYNAMIC_CACHE);
+        await cache.put(request, response.clone());
+        await trimCache(DYNAMIC_CACHE, MAX_DYNAMIC_ENTRIES);
+      }
+      return response;
+    } catch {
+      return new Response("", { status: 503 });
+    }
+  }));
 });
 
-// ── Push notifications ────────────────────────────────────────────────────────
+function safeNotificationUrl(value) {
+  try {
+    const target = new URL(typeof value === "string" ? value : "", APP_ROOT);
+    if (target.origin !== self.location.origin || !target.pathname.startsWith(APP_ROOT.pathname)) {
+      return appUrl();
+    }
+    return target.href;
+  } catch {
+    return appUrl();
+  }
+}
+
 self.addEventListener("push", (event) => {
-  const data = event.data?.json() ?? {};
-  event.waitUntil(
-    self.registration.showNotification(data.title ?? "Treffin", {
-      body: data.body ?? "You have a new notification.",
-      icon: "/treffin-mark.png",
-      badge: "/treffin-mark.png",
-      tag: data.tag ?? "treffin",
+  let data = {};
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch {
+      data = { body: event.data.text() };
+    }
+  }
+
+  const tag = typeof data.tag === "string" && data.tag
+    ? data.tag
+    : `treffin-${Date.now()}`;
+  event.waitUntil(self.registration.showNotification(
+    typeof data.title === "string" ? data.title : "Treffin",
+    {
+      body: typeof data.body === "string" ? data.body : "You have a new notification.",
+      icon: appUrl("pwa-icon-192.png"),
+      badge: appUrl("pwa-icon-192.png"),
+      tag,
       renotify: true,
-      data: { url: data.url ?? "/" },
-    })
-  );
+      data: { url: safeNotificationUrl(data.url) },
+    },
+  ));
 });
 
-// ── Notification click ────────────────────────────────────────────────────────
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = event.notification.data?.url ?? "/";
-  event.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      const existing = clients.find((c) => "focus" in c);
-      if (existing) {
-        existing.navigate(url);
-        return existing.focus();
+  const target = safeNotificationUrl(event.notification.data?.url);
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const existing = windows.find((client) => client.url === target) ?? windows[0];
+    if (existing) {
+      try {
+        await existing.navigate(target);
+        return await existing.focus();
+      } catch {
+        // Fall through and open a fresh app window.
       }
-      return self.clients.openWindow(url);
-    })
-  );
+    }
+    return self.clients.openWindow(target);
+  })());
 });

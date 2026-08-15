@@ -11,15 +11,17 @@ import { formatNumber } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useSession } from "@/lib/auth-client";
 
 export default function Debates() {
-  const { data: debates, isLoading } = useGetDebates();
+  const { data: debates, isLoading, isError, refetch } = useGetDebates();
   const { data: topicsData } = useGetTopics();
-  const categories = ["All", ...(topicsData?.map(t => t.name) ?? [])];
+  const categories = ["All", ...new Set(topicsData?.map(t => t.name) ?? [])];
   const createDebate = useCreateDebate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
+  const { isSignedIn, isLoaded } = useSession();
   const [showCreate, setShowCreate] = useState(false);
   const [createStep, setCreateStep] = useState<"details" | "moderation">("details");
   const [category, setCategory] = useState("All");
@@ -33,6 +35,11 @@ export default function Debates() {
   const [durationHours, setDurationHours] = useState(168);
 
   const openCreate = () => {
+    if (isLoaded && !isSignedIn) {
+      toast({ title: "Sign in to start a debate", description: "Create an account or sign in before opening a new arena." });
+      setLocation("/sign-in");
+      return;
+    }
     setNewTitle(""); setNewDesc(""); setNewCat("Artificial Intelligence");
     setWantsModerator(null); setWinnerAuthority("creator"); setWordLimit(0); setDurationHours(168);
     setCreateStep("details");
@@ -40,7 +47,12 @@ export default function Debates() {
   };
 
   const handleCreate = () => {
-    if (!newTitle.trim()) return;
+    if (newTitle.trim().length < 10 || newTitle.trim().length > 240) {
+      toast({ title: "Check the debate topic", description: "The topic must be between 10 and 240 characters.", variant: "destructive" }); return;
+    }
+    if (newDesc.trim().length > 5000) {
+      toast({ title: "Description is too long", description: "Use 5,000 characters or fewer.", variant: "destructive" }); return;
+    }
     const isMod = wantsModerator === true;
     createDebate.mutate(
       { data: {
@@ -67,7 +79,10 @@ export default function Debates() {
             toast({ title: "Debate created!", description: "Your debate is now live in the arena." });
           }
         },
-        onError: () => toast({ title: "Failed to create debate", variant: "destructive" }),
+        onError: (error: unknown) => {
+          const message = (error as { data?: { error?: string }; message?: string })?.data?.error ?? (error as { message?: string })?.message;
+          toast({ title: "Failed to create debate", description: message, variant: "destructive" });
+        },
       }
     );
   };
@@ -132,6 +147,8 @@ export default function Debates() {
                         placeholder="E.g. Should universal basic income be implemented?"
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
+                        minLength={10}
+                        maxLength={240}
                         data-testid="input-debate-title"
                       />
                     </div>
@@ -143,6 +160,7 @@ export default function Debates() {
                         rows={3}
                         value={newDesc}
                         onChange={(e) => setNewDesc(e.target.value)}
+                        maxLength={5000}
                         data-testid="input-debate-desc"
                       />
                     </div>
@@ -173,8 +191,13 @@ export default function Debates() {
                     <button className="flex-1 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-muted transition-colors" onClick={() => setShowCreate(false)}>Cancel</button>
                     <button
                       className="flex-1 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
-                      onClick={() => setCreateStep("moderation")}
-                      disabled={!newTitle.trim() || newCat === "Mathematics"}
+                      onClick={() => {
+                        if (newTitle.trim().length < 10) {
+                          toast({ title: "Add a clearer topic", description: "Use at least 10 characters for the debate topic.", variant: "destructive" }); return;
+                        }
+                        setCreateStep("moderation");
+                      }}
+                      disabled={newTitle.trim().length > 240 || newCat === "Mathematics"}
                     >
                       Next →
                     </button>
@@ -376,6 +399,12 @@ export default function Debates() {
         <div className="flex flex-col gap-3">
           {isLoading ? (
             Array(5).fill(0).map((_, i) => <Skeleton key={i} className="w-full h-[140px] rounded-xl" />)
+          ) : isError ? (
+            <div className="flex flex-col items-center gap-3 py-16 text-center rounded-xl border border-red-500/20 bg-red-500/5 px-4">
+              <p className="font-semibold text-red-300">Debates could not be loaded</p>
+              <p className="text-sm text-muted-foreground">Check your connection and try again. Existing debates have not been changed.</p>
+              <button className="text-sm font-semibold text-red-300 border border-red-500/30 rounded-full px-4 py-2" onClick={() => refetch()}>Try again</button>
+            </div>
           ) : !filtered?.length ? (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
               <p className="text-muted-foreground">{search ? `No debates match "${search}"` : "No debates in this category yet."}</p>
@@ -386,7 +415,7 @@ export default function Debates() {
             </div>
           ) : (
             filtered.map(debate => {
-              const isElegance = debate.title.startsWith("Elegance Battle:");
+              const isElegance = debate.mathProblemId != null || debate.title.startsWith("Elegance Battle:");
               const displayTitle = isElegance
                 ? debate.title.replace(/^Elegance Battle:\s*/, "")
                 : debate.title;
@@ -397,7 +426,7 @@ export default function Debates() {
                 const approachB = lines.find(l => l.startsWith("**Approach B"))?.replace(/\*\*/g, "") ?? "Approach B";
 
                 return (
-                  <Link key={debate.id} href={debate.mathProblemId ? `/math/problem/${debate.mathProblemId}/showdown` : `/debates/${debate.id}`}>
+                  <Link key={debate.id} href={debate.mathProblemId ? `/math/problem/${debate.mathProblemId}/elegance-battle` : `/debates/${debate.id}`}>
                     <div
                       data-testid={`card-debate-${debate.id}`}
                       className="rounded-xl cursor-pointer transition-all group overflow-hidden"
@@ -418,7 +447,7 @@ export default function Debates() {
                               <Trophy className="w-2.5 h-2.5" /> Decided
                             </span>
                           )}
-                          {!debate.winnerStatus && debate.isLive && (
+                          {debate.winnerStatus === "undecided" && debate.isLive && (
                             <span className="flex items-center gap-1 text-[10px] font-bold text-red-400 uppercase tracking-widest">
                               <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" /> Live
                             </span>
@@ -445,18 +474,9 @@ export default function Debates() {
                           </div>
                         </div>
 
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex justify-between text-xs font-semibold">
-                            <span className="text-indigo-400">A · {debate.supportPercent}%</span>
-                            <span className="text-purple-400">B · {debate.againstPercent}%</span>
-                          </div>
-                          <div className="h-2 w-full rounded-full overflow-hidden flex" style={{ background: "rgba(139,92,246,0.1)" }}>
-                            <div className="h-full bg-indigo-500 transition-all" style={{ width: `${debate.supportPercent}%` }} />
-                            <div className="h-full bg-purple-500 transition-all" style={{ width: `${debate.againstPercent}%` }} />
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <Users className="w-3.5 h-3.5" /> {formatNumber(debate.participantCount)} voted
-                          </div>
+                        <div className="flex items-center justify-between gap-3 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2.5">
+                          <span className="text-xs text-muted-foreground">Vote across elegance, rigor, clarity, and efficiency.</span>
+                          <span className="shrink-0 text-xs font-bold text-purple-300">View battle →</span>
                         </div>
                       </div>
                     </div>

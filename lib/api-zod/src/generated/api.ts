@@ -498,6 +498,7 @@ export const GetArticlesResponseItem = zod.object({
   "category": zod.string().nullish(),
   "readTime": zod.number(),
   "likes": zod.number(),
+  "comments": zod.number().optional(),
   "liked": zod.boolean().optional(),
   "isVerified": zod.boolean().optional(),
   "createdAt": zod.string(),
@@ -537,6 +538,7 @@ export const CreateArticleResponse = zod.object({
   "category": zod.string().nullish(),
   "readTime": zod.number(),
   "likes": zod.number(),
+  "comments": zod.number().optional(),
   "liked": zod.boolean().optional(),
   "isVerified": zod.boolean().optional(),
   "createdAt": zod.string(),
@@ -570,6 +572,7 @@ export const GetArticleResponse = zod.object({
   "category": zod.string().nullish(),
   "readTime": zod.number(),
   "likes": zod.number(),
+  "comments": zod.number().optional(),
   "liked": zod.boolean().optional(),
   "isVerified": zod.boolean().optional(),
   "createdAt": zod.string(),
@@ -789,21 +792,22 @@ export const GetTopicsResponse = zod.array(GetTopicsResponseItem)
 /**
  * @summary Get daily big question for the hero banner
  */
-export const GetDailyQuestionResponse = zod.object({
+export const GetDailyQuestionResponse = zod.union([zod.object({
   "id": zod.number(),
   "question": zod.string(),
   "supportPercent": zod.number(),
   "againstPercent": zod.number(),
   "participantCount": zod.number(),
   "isLive": zod.boolean(),
-  "imageUrl": zod.string()
-})
+  "imageUrl": zod.string(),
+  "myVote": zod.union([zod.literal('support'),zod.literal('against'),zod.literal(null)]).nullable()
+}),zod.null()])
 
 
 /**
  * @summary Get active weekly challenge
  */
-export const GetWeeklyChallengeResponse = zod.object({
+export const GetWeeklyChallengeResponse = zod.union([zod.object({
   "id": zod.number(),
   "question": zod.string(),
   "startDate": zod.string(),
@@ -812,8 +816,9 @@ export const GetWeeklyChallengeResponse = zod.object({
   "winnerUserId": zod.string().nullish(),
   "winnerName": zod.string().nullish(),
   "winnerAvatar": zod.string().nullish(),
-  "winnerResponse": zod.string().nullish()
-})
+  "winnerResponse": zod.string().nullish(),
+  "hasSubmitted": zod.boolean()
+}),zod.null()])
 
 
 /**
@@ -830,7 +835,8 @@ export const VoteDailyQuestionResponse = zod.object({
   "againstPercent": zod.number(),
   "participantCount": zod.number(),
   "isLive": zod.boolean(),
-  "imageUrl": zod.string()
+  "imageUrl": zod.string(),
+  "myVote": zod.union([zod.literal('support'),zod.literal('against'),zod.literal(null)]).nullable()
 })
 
 
@@ -979,6 +985,23 @@ export const GetCommunityResponse = zod.object({
 })),
   "isMember": zod.boolean().optional(),
   "joinStatus": zod.enum(['none', 'pending', 'member']).optional()
+})
+
+
+/**
+ * @summary Transfer community ownership to an approved member
+ */
+export const TransferCommunityOwnershipParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const TransferCommunityOwnershipBody = zod.object({
+  "userId": zod.number()
+})
+
+export const TransferCommunityOwnershipResponse = zod.object({
+  "ok": zod.boolean(),
+  "creatorId": zod.number()
 })
 
 
@@ -1469,6 +1492,7 @@ export const LikeArticleResponse = zod.object({
   "category": zod.string().nullish(),
   "readTime": zod.number(),
   "likes": zod.number(),
+  "comments": zod.number().optional(),
   "liked": zod.boolean().optional(),
   "isVerified": zod.boolean().optional(),
   "createdAt": zod.string(),
@@ -2126,7 +2150,8 @@ export const AdminGetDailyQuestionResponse = zod.object({
   "againstPercent": zod.number(),
   "participantCount": zod.number(),
   "isLive": zod.boolean(),
-  "imageUrl": zod.string()
+  "imageUrl": zod.string(),
+  "myVote": zod.union([zod.literal('support'),zod.literal('against'),zod.literal(null)]).nullable()
 })
 
 
@@ -2145,7 +2170,8 @@ export const AdminSetDailyQuestionResponse = zod.object({
   "againstPercent": zod.number(),
   "participantCount": zod.number(),
   "isLive": zod.boolean(),
-  "imageUrl": zod.string()
+  "imageUrl": zod.string(),
+  "myVote": zod.union([zod.literal('support'),zod.literal('against'),zod.literal(null)]).nullable()
 })
 
 
@@ -2255,7 +2281,8 @@ export const AdminGetWeeklyChallengeResponse = zod.object({
   "winnerUserId": zod.string().nullish(),
   "winnerName": zod.string().nullish(),
   "winnerAvatar": zod.string().nullish(),
-  "winnerResponse": zod.string().nullish()
+  "winnerResponse": zod.string().nullish(),
+  "hasSubmitted": zod.boolean()
 })
 
 
@@ -2277,7 +2304,8 @@ export const AdminSetWeeklyChallengeResponse = zod.object({
   "winnerUserId": zod.string().nullish(),
   "winnerName": zod.string().nullish(),
   "winnerAvatar": zod.string().nullish(),
-  "winnerResponse": zod.string().nullish()
+  "winnerResponse": zod.string().nullish(),
+  "hasSubmitted": zod.boolean()
 })
 
 
@@ -2730,14 +2758,10 @@ export const StartEleganceDebateResponse = zod.object({
 
 
 /**
- * @summary Get full elegance battle data for the dedicated battle page
+ * @summary Get full elegance battle data
  */
 export const GetEleganceBattleFullParams = zod.object({
   "id": zod.coerce.number()
-})
-
-export const GetEleganceBattleFullHeader = zod.object({
-  "x-math-user-id": zod.string().optional()
 })
 
 export const GetEleganceBattleFullResponse = zod.object({
@@ -2748,7 +2772,9 @@ export const GetEleganceBattleFullResponse = zod.object({
   "isLive": zod.boolean(),
   "isEnded": zod.boolean(),
   "verdict": zod.string().nullish(),
-  "verdictAuthor": zod.string().nullish()
+  "verdictAuthor": zod.string().nullish(),
+  "canParticipate": zod.boolean(),
+  "canConclude": zod.boolean()
 }),zod.null()]).optional(),
   "solutions": zod.array(zod.object({
   "id": zod.number(),
@@ -2778,50 +2804,61 @@ export const GetEleganceBattleFullResponse = zod.object({
   "userId": zod.string(),
   "userName": zod.string(),
   "content": zod.string(),
+  "createdAt": zod.string().optional(),
   "upvotes": zod.number(),
   "downvotes": zod.number(),
   "isPinned": zod.boolean(),
-  "myVote": zod.string().nullable(),
+  "myVote": zod.union([zod.literal('up'),zod.literal('down'),zod.literal(null)]).nullable(),
   "replies": zod.array(zod.unknown())
 })),
   "myAxisVotes": zod.object({
-  "elegant": zod.number().nullish(),
-  "clear": zod.number().nullish(),
-  "rigorous": zod.number().nullish(),
-  "efficient": zod.number().nullish()
+  "elegant": zod.number().nullable(),
+  "clear": zod.number().nullable(),
+  "rigorous": zod.number().nullable(),
+  "efficient": zod.number().nullable()
 }),
   "categories": zod.object({
-  "mostElegant": zod.object({
+  "mostElegant": zod.union([zod.object({
   "solutionId": zod.number().optional(),
-  "votes": zod.number().optional()
-}).nullish(),
-  "mostRigorous": zod.object({
-  "solutionId": zod.number().optional(),
-  "votes": zod.number().optional()
-}).nullish(),
-  "clearest": zod.object({
-  "solutionId": zod.number().optional(),
-  "votes": zod.number().optional()
-}).nullish(),
-  "mostEfficient": zod.object({
-  "solutionId": zod.number().optional(),
+  "votes": zod.number().optional(),
   "stepCount": zod.number().optional()
-}).nullish()
+}),zod.null()]).optional(),
+  "mostRigorous": zod.union([zod.object({
+  "solutionId": zod.number().optional(),
+  "votes": zod.number().optional(),
+  "stepCount": zod.number().optional()
+}),zod.null()]).optional(),
+  "clearest": zod.union([zod.object({
+  "solutionId": zod.number().optional(),
+  "votes": zod.number().optional(),
+  "stepCount": zod.number().optional()
+}),zod.null()]).optional(),
+  "mostEfficient": zod.union([zod.object({
+  "solutionId": zod.number().optional(),
+  "votes": zod.number().optional(),
+  "stepCount": zod.number().optional()
+}),zod.null()]).optional()
 })
 })
 
 
 /**
- * @summary Post a step justification argument in an elegance battle
+ * @summary Post a step argument
  */
 export const PostEleganceBattleArgumentParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const postEleganceBattleArgumentBodyStepIndexMin = 0;
+
+export const postEleganceBattleArgumentBodyContentMax = 4000;
+
+
+
 export const PostEleganceBattleArgumentBody = zod.object({
   "solutionId": zod.number(),
-  "stepIndex": zod.number(),
-  "content": zod.string(),
+  "stepIndex": zod.number().min(postEleganceBattleArgumentBodyStepIndexMin),
+  "content": zod.string().min(1).max(postEleganceBattleArgumentBodyContentMax),
   "parentId": zod.number().optional()
 })
 
@@ -2833,16 +2870,17 @@ export const PostEleganceBattleArgumentResponse = zod.object({
   "userId": zod.string(),
   "userName": zod.string(),
   "content": zod.string(),
+  "createdAt": zod.string().optional(),
   "upvotes": zod.number(),
   "downvotes": zod.number(),
   "isPinned": zod.boolean(),
-  "myVote": zod.string().nullable(),
+  "myVote": zod.union([zod.literal('up'),zod.literal('down'),zod.literal(null)]).nullable(),
   "replies": zod.array(zod.unknown())
 })
 
 
 /**
- * @summary Up/downvote a step justification argument (toggle)
+ * @summary Toggle an argument vote
  */
 export const VoteEleganceBattleArgumentParams = zod.object({
   "id": zod.coerce.number(),
@@ -2856,19 +2894,23 @@ export const VoteEleganceBattleArgumentBody = zod.object({
 export const VoteEleganceBattleArgumentResponse = zod.object({
   "upvotes": zod.number(),
   "downvotes": zod.number(),
-  "myVote": zod.string().nullable()
+  "myVote": zod.union([zod.literal('up'),zod.literal('down'),zod.literal(null)]).nullable()
 })
 
 
 /**
- * @summary Conclude an elegance battle with a verdict (moderator/admin only)
+ * @summary Conclude an elegance battle
  */
 export const ConcludeEleganceBattleParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const concludeEleganceBattleBodyVerdictMax = 4000;
+
+
+
 export const ConcludeEleganceBattleBody = zod.object({
-  "verdict": zod.string()
+  "verdict": zod.string().min(1).max(concludeEleganceBattleBodyVerdictMax)
 })
 
 export const ConcludeEleganceBattleResponse = zod.object({

@@ -1,5 +1,9 @@
 {
   "rewrites": [
+    {
+      "source": "/api/auth/:path*",
+      "destination": "https://treffin-api.onrender.com/api/auth/:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

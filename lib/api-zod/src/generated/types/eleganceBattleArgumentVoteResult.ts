@@ -5,10 +5,11 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { EleganceBattleArgumentVoteResultMyVote } from './eleganceBattleArgumentVoteResultMyVote';
 
 export interface EleganceBattleArgumentVoteResult {
   upvotes: number;
   downvotes: number;
   /** @nullable */
-  myVote: string | null;
+  myVote: EleganceBattleArgumentVoteResultMyVote;
 }

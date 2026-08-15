@@ -14,4 +14,6 @@ export interface MathBattleInfo {
   verdict?: string | null;
   /** @nullable */
   verdictAuthor?: string | null;
+  canParticipate: boolean;
+  canConclude: boolean;
 }

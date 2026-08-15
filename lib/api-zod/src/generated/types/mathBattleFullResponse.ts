@@ -7,9 +7,9 @@
  */
 import type { MathBattleArgument } from './mathBattleArgument';
 import type { MathBattleCategories } from './mathBattleCategories';
-import type { MathBattleFullResponseMyAxisVotes } from './mathBattleFullResponseMyAxisVotes';
 import type { MathBattleInfo } from './mathBattleInfo';
 import type { MathBattleSolution } from './mathBattleSolution';
+import type { MathShowdownMyVotes } from './mathShowdownMyVotes';
 
 export interface MathBattleFullResponse {
   problemId: number;
@@ -17,6 +17,6 @@ export interface MathBattleFullResponse {
   battle?: MathBattleInfo | null;
   solutions: MathBattleSolution[];
   arguments: MathBattleArgument[];
-  myAxisVotes: MathBattleFullResponseMyAxisVotes;
+  myAxisVotes: MathShowdownMyVotes;
   categories: MathBattleCategories;
 }

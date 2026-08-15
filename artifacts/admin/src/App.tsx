@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "sonner";
+import { Toaster, toast } from "sonner";
+import { ADMIN_REQUEST_ERROR_EVENT } from "@/lib/admin-events";
 import { hasAdminSession, logout } from "@/lib/auth";
 import { api } from "@/lib/api";
 import Login from "@/pages/login";
@@ -184,6 +185,15 @@ function AdminShell() {
 
 export default function App() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const showRequestError = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      toast.error(message || "Admin request failed");
+    };
+    window.addEventListener(ADMIN_REQUEST_ERROR_EVENT, showRequestError);
+    return () => window.removeEventListener(ADMIN_REQUEST_ERROR_EVENT, showRequestError);
+  }, []);
 
   useEffect(() => {
     let active = true;

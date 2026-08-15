@@ -6,7 +6,7 @@ import { eq, desc, inArray, and, or, sql } from "drizzle-orm";
 import { createNotification } from "../lib/notify";
 import { checkToxicity, detectAiContent } from "../lib/content-moderation";
 import { awardRep } from "./reputation";
-import { debateAcceptsParticipation, isDebateSide, isDebateWinnerSide, validDebateAuthority } from "../lib/security-policy";
+import { debateAcceptsParticipation, debateVotePreservesStance, isDebateSide, isDebateWinnerSide, normalizeDebateSources, validDebateAuthority } from "../lib/security-policy";
 
 const router = Router();
 
@@ -254,10 +254,16 @@ router.get("/debates/:id", async (req, res) => {
 });
 
 // ── Viewer ping — keeps the live viewer count accurate ─────────────────────
-router.post("/debates/:id/ping", (req, res) => {
+router.post("/debates/:id/ping", async (req, res) => {
   const id = Number(req.params.id);
   const { clientId } = req.body as { clientId?: string };
-  if (isNaN(id) || !clientId) { res.json({ viewerCount: 0 }); return; }
+  if (!Number.isSafeInteger(id) || id <= 0 || typeof clientId !== "string" || !clientId.trim() || clientId.length > 128) {
+    res.status(400).json({ error: "Invalid viewer ping" }); return;
+  }
+  if (!debateViewers.has(id)) {
+    const [debate] = await db.select({ id: debatesTable.id }).from(debatesTable).where(eq(debatesTable.id, id)).limit(1);
+    if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
+  }
   let viewers = debateViewers.get(id);
   if (!viewers) { viewers = new Map(); debateViewers.set(id, viewers); }
   viewers.set(clientId, Date.now());
@@ -346,11 +352,20 @@ router.patch("/debates/:id", async (req, res) => {
     }
 
     const { title, description } = req.body as { title?: string; description?: string };
+    if (title === undefined && description === undefined) { res.status(400).json({ error: "No changes supplied" }); return; }
+    const cleanTitle = title === undefined ? undefined : title.trim();
+    const cleanDescription = description === undefined ? undefined : description.trim();
+    if (cleanTitle !== undefined && (cleanTitle.length < 10 || cleanTitle.length > 240)) {
+      res.status(400).json({ error: "Debate title must be between 10 and 240 characters" }); return;
+    }
+    if (cleanDescription !== undefined && cleanDescription.length > 5000) {
+      res.status(400).json({ error: "Description cannot exceed 5000 characters" }); return;
+    }
     const [updated] = await db
       .update(debatesTable)
       .set({
-        ...(title !== undefined ? { title } : {}),
-        ...(description !== undefined ? { description } : {}),
+        ...(cleanTitle !== undefined ? { title: cleanTitle } : {}),
+        ...(cleanDescription !== undefined ? { description: cleanDescription || null } : {}),
       })
       .where(eq(debatesTable.id, id))
       .returning();
@@ -615,6 +630,7 @@ router.post("/debates/:id/vote", async (req, res) => {
     if (isNaN(id)) { res.status(400).json({ error: "Invalid debate id" }); return; }
     const { vote, annotation } = req.body as { vote: unknown; annotation?: string };
     if (!isDebateSide(vote)) { res.status(400).json({ error: "vote must be support or against" }); return; }
+    if (typeof annotation === "string" && annotation.trim().length > 500) { res.status(400).json({ error: "Vote annotation must be 500 characters or fewer" }); return; }
 
     const [debate] = await db
       .select()
@@ -645,6 +661,11 @@ router.post("/debates/:id/vote", async (req, res) => {
         ))
         .limit(1);
       const isNewParticipant = !existingVote;
+      if (!debateVotePreservesStance(existingVote?.side, vote)) {
+        const stanceError = new Error("Leave the debate before choosing a different side") as Error & { code?: string };
+        stanceError.code = "DEBATE_STANCE_LOCKED";
+        throw stanceError;
+      }
       await tx.delete(debateOptOutsTable).where(and(
         eq(debateOptOutsTable.debateId, id),
         eq(debateOptOutsTable.userId, actorClerkId),
@@ -723,6 +744,9 @@ router.post("/debates/:id/vote", async (req, res) => {
 
     res.json(serializeDebate(updated));
   } catch (err) {
+    if ((err as { code?: string })?.code === "DEBATE_STANCE_LOCKED") {
+      res.status(409).json({ error: (err as Error).message }); return;
+    }
     req.log.error({ err }, "Failed to vote on debate");
     res.status(500).json({ error: "Failed to vote on debate" });
   }
@@ -782,6 +806,7 @@ router.get("/debates/:id/outcome", async (req, res) => {
 router.get("/debates/:id/comments", async (req, res) => {
   try {
     const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid debate id" }); return; }
     const comments = await db
       .select()
       .from(commentsTable)
@@ -863,6 +888,8 @@ router.post("/debates/:id/comments", async (req, res) => {
     }
 
     const isReply = !!parentCommentId;
+    const normalizedSources = normalizeDebateSources(sources);
+    if (!normalizedSources.ok) { res.status(400).json({ error: normalizedSources.error }); return; }
 
     // Minimum word count — replies are conversational, skip the 30-word floor
     const wordCount = content.trim().split(/\s+/).filter(Boolean).length;
@@ -910,7 +937,7 @@ router.post("/debates/:id/comments", async (req, res) => {
     }
 
     // Source requirement check — replies are exempt
-    if (!isReply && debate.sourcesRequired && (!sources || sources === "[]")) {
+    if (!isReply && debate.sourcesRequired && normalizedSources.sources.length === 0) {
       res.status(400).json({ error: "This debate requires at least one source citation. Please add a source." }); return;
     }
 
@@ -937,7 +964,7 @@ router.post("/debates/:id/comments", async (req, res) => {
     }
 
     // Source requirement for long arguments (≥ 150 words) — replies are exempt
-    if (!isReply && wordCount >= 150 && (!sources || sources === "[]" || sources.trim() === "" || sources.trim() === "null")) {
+    if (!isReply && wordCount >= 150 && normalizedSources.sources.length === 0) {
       res.status(400).json({ error: "Arguments of 150 or more words require at least one source citation. Add a supporting link in the Sources field." }); return;
     }
 
@@ -988,7 +1015,7 @@ router.post("/debates/:id/comments", async (req, res) => {
         authorName: resolvedAuthorName,
         content,
         side: resolvedSide,
-        sources: sources ?? null,
+        sources: normalizedSources.serialized,
         wordCount,
         isFlagged: toxicityResult.flagged,
         toxicityFlagged: toxicityResult.flagged,
@@ -1156,6 +1183,14 @@ router.post("/debates/:id/comments/:commentId/react", async (req, res) => {
     if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
     const { reaction } = req.body as { reaction?: string };
     if (!["fire", "think", "bulb"].includes(reaction ?? "")) { res.status(400).json({ error: "Invalid reaction" }); return; }
+
+    const [comment] = await db
+      .select({ id: commentsTable.id, isRemoved: commentsTable.isRemoved })
+      .from(commentsTable)
+      .where(and(eq(commentsTable.id, commentId), eq(commentsTable.debateId, id)))
+      .limit(1);
+    if (!comment) { res.status(404).json({ error: "Comment not found" }); return; }
+    if (comment.isRemoved) { res.status(409).json({ error: "Removed comments cannot receive reactions" }); return; }
 
     // Toggle: same reaction again removes it; different reaction replaces it
     const [existing] = await db
@@ -1335,7 +1370,16 @@ router.get("/debates/:id/agreements", async (req, res) => {
     const userId = req.betterAuthSession?.user?.id ?? null;
     let upvotedIds = new Set<number>();
     let canPost = false;
+    const currentUserAliases = new Set<string>();
     if (userId) {
+      currentUserAliases.add(userId);
+      const [currentProfile] = await db
+        .select({ clerkId: usersTable.clerkId, betterAuthId: usersTable.betterAuthId })
+        .from(usersTable)
+        .where(or(eq(usersTable.betterAuthId, userId), eq(usersTable.clerkId, userId)))
+        .limit(1);
+      if (currentProfile?.clerkId) currentUserAliases.add(currentProfile.clerkId);
+      if (currentProfile?.betterAuthId) currentUserAliases.add(currentProfile.betterAuthId);
       const [participation] = await db
         .select()
         .from(debateParticipantVotesTable)
@@ -1346,7 +1390,7 @@ router.get("/debates/:id/agreements", async (req, res) => {
           )
         )
         .limit(1);
-      canPost = !!participation;
+      canPost = !!participation && debateAcceptsParticipation(debate) && !isBlockedModeratorParticipant(debate, userId);
 
       if (agreements.length > 0) {
         const myUpvotes = await db
@@ -1355,7 +1399,7 @@ router.get("/debates/:id/agreements", async (req, res) => {
           .where(
             and(
               inArray(debateAgreementUpvotesTable.agreementId, agreements.map((a) => a.id)),
-              eq(debateAgreementUpvotesTable.userId, userId)
+              inArray(debateAgreementUpvotesTable.userId, [...currentUserAliases])
             )
           );
         upvotedIds = new Set(myUpvotes.map((u) => u.agreementId));
@@ -1386,7 +1430,7 @@ router.get("/debates/:id/agreements", async (req, res) => {
         text: a.text,
         upvotes: a.upvotes,
         hasUpvoted: upvotedIds.has(a.id),
-        isOwnAgreement: userId === a.authorId,
+        isOwnAgreement: currentUserAliases.has(a.authorId),
         createdAt: a.createdAt.toISOString(),
       })),
       canPost,
@@ -1411,6 +1455,8 @@ router.post("/debates/:id/agreements", async (req, res) => {
 
     const [debate] = await db.select().from(debatesTable).where(eq(debatesTable.id, debateId)).limit(1);
     if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
+    if (!debateAcceptsParticipation(debate)) { res.status(409).json({ error: "This debate is no longer accepting agreements" }); return; }
+    if (isBlockedModeratorParticipant(debate, userId)) { res.status(403).json({ error: "Debate moderators cannot add agreements" }); return; }
 
     // Enforce participant-only writes
     const [participation] = await db
@@ -1428,12 +1474,13 @@ router.post("/debates/:id/agreements", async (req, res) => {
     // Derive author display name from stored user profile (not trusted from client).
     // A missing user row means the profile hasn't been materialised yet — surface a
     // clear 409 rather than letting the FK constraint produce a generic 500.
+    await jitProvisionUser(req.betterAuthSession?.user ?? null);
     const [dbUser] = await db
-      .select({ name: usersTable.name })
+      .select({ name: usersTable.name, clerkId: usersTable.clerkId })
       .from(usersTable)
       .where(eq(usersTable.betterAuthId, userId))
       .limit(1);
-    if (!dbUser) {
+    if (!dbUser?.clerkId) {
       res.status(409).json({ error: "User profile not yet available — please reload and try again" });
       return;
     }
@@ -1441,7 +1488,7 @@ router.post("/debates/:id/agreements", async (req, res) => {
 
     const [agreement] = await db
       .insert(debateAgreementsTable)
-      .values({ debateId, authorId: userId, authorName, text: text.trim() })
+      .values({ debateId, authorId: dbUser.clerkId, authorName, text: text.trim() })
       .returning();
 
     const [authorProfile] = await db
@@ -1483,6 +1530,20 @@ router.post("/agreements/:id/upvote", async (req, res) => {
       .limit(1);
     if (!agreement) { res.status(404).json({ error: "Agreement not found" }); return; }
 
+    const [agreementDebate] = await db.select().from(debatesTable).where(eq(debatesTable.id, agreement.debateId)).limit(1);
+    if (!agreementDebate) { res.status(404).json({ error: "Debate not found" }); return; }
+    if (!debateAcceptsParticipation(agreementDebate)) { res.status(409).json({ error: "This debate is no longer accepting agreement votes" }); return; }
+    if (isBlockedModeratorParticipant(agreementDebate, userId)) { res.status(403).json({ error: "Debate moderators cannot upvote agreements" }); return; }
+    await jitProvisionUser(req.betterAuthSession?.user ?? null);
+    const [currentUser] = await db
+      .select({ clerkId: usersTable.clerkId, betterAuthId: usersTable.betterAuthId })
+      .from(usersTable)
+      .where(or(eq(usersTable.betterAuthId, userId), eq(usersTable.clerkId, userId)))
+      .limit(1);
+    if (!currentUser?.clerkId) { res.status(409).json({ error: "User profile not yet available — please reload and try again" }); return; }
+    const currentUserAliases = [currentUser.clerkId, currentUser.betterAuthId].filter((value): value is string => !!value);
+    const agreementActorId = currentUser.clerkId;
+
     // Enforce participant-only upvotes
     const [participation] = await db
       .select()
@@ -1495,7 +1556,7 @@ router.post("/agreements/:id/upvote", async (req, res) => {
       )
       .limit(1);
     if (!participation) { res.status(403).json({ error: "You must vote in this debate before upvoting agreements" }); return; }
-    if (agreement.authorId === userId) { res.status(403).json({ error: "You cannot upvote your own agreement" }); return; }
+    if (currentUserAliases.includes(agreement.authorId)) { res.status(403).json({ error: "You cannot upvote your own agreement" }); return; }
 
     const [existingUpvote] = await db
       .select()
@@ -1503,7 +1564,7 @@ router.post("/agreements/:id/upvote", async (req, res) => {
       .where(
         and(
           eq(debateAgreementUpvotesTable.agreementId, agreementId),
-          eq(debateAgreementUpvotesTable.userId, userId)
+          inArray(debateAgreementUpvotesTable.userId, currentUserAliases)
         )
       )
       .limit(1);
@@ -1544,7 +1605,7 @@ router.post("/agreements/:id/upvote", async (req, res) => {
         // Only increment if the insert actually wrote a row (skip on unique-conflict)
         const inserted = await tx
           .insert(debateAgreementUpvotesTable)
-          .values({ agreementId, userId })
+          .values({ agreementId, userId: agreementActorId })
           .onConflictDoNothing()
           .returning();
         if (inserted.length > 0) {
@@ -1582,7 +1643,7 @@ router.post("/agreements/:id/upvote", async (req, res) => {
       text: updated.text,
       upvotes: updated.upvotes,
       hasUpvoted,
-      isOwnAgreement: updated.authorId === userId,
+      isOwnAgreement: currentUserAliases.includes(updated.authorId),
       createdAt: updated.createdAt.toISOString(),
     });
   } catch (err) {
@@ -1668,16 +1729,16 @@ router.patch("/debates/:id/freeze", async (req, res) => {
     if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
     const { isFrozen, reason } = req.body as { isFrozen: boolean; reason?: string };
 
-    // Only the debate creator or an admin (checked server-side via env) may freeze
+    // Freeze powers belong only to the neutral creator-moderator. Admin actions
+    // use the separately authenticated admin routes.
     const [debate] = await db
-      .select({ creatorUserId: debatesTable.creatorUserId })
+      .select()
       .from(debatesTable)
       .where(eq(debatesTable.id, id))
       .limit(1);
     if (!debate) { res.status(404).json({ error: "Debate not found" }); return; }
-    const isAdmin = clerkId === process.env.ADMIN_CLERK_ID;
-    if (!isAdmin && debate.creatorUserId !== clerkId) {
-      res.status(403).json({ error: "Only the debate creator can freeze it" }); return;
+    if (!isCreatorModerator(debate, clerkId)) {
+      res.status(403).json({ error: "Only this debate's creator-moderator can freeze it" }); return;
     }
 
     const [updated] = await db
@@ -1716,12 +1777,13 @@ router.post("/debates/:id/comments/:commentId/like", async (req, res) => {
     await jitProvisionUser(req.betterAuthSession?.user ?? null);
 
     const [comment] = await db
-      .select({ id: commentsTable.id, debateId: commentsTable.debateId, likes: commentsTable.likes, authorId: commentsTable.authorId, authorName: commentsTable.authorName })
+      .select({ id: commentsTable.id, debateId: commentsTable.debateId, likes: commentsTable.likes, authorId: commentsTable.authorId, authorName: commentsTable.authorName, isRemoved: commentsTable.isRemoved })
       .from(commentsTable)
       .where(and(eq(commentsTable.id, commentId), eq(commentsTable.debateId, debateId)))
       .limit(1);
 
     if (!comment) { res.status(404).json({ error: "Comment not found" }); return; }
+    if (comment.isRemoved) { res.status(409).json({ error: "Removed comments cannot be liked" }); return; }
 
     let liked = false;
     let updatedLikes = 0;

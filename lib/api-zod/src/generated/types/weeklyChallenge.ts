@@ -20,4 +20,5 @@ export interface WeeklyChallenge {
   winnerAvatar?: string | null;
   /** @nullable */
   winnerResponse?: string | null;
+  hasSubmitted: boolean;
 }

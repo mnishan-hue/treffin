@@ -32,12 +32,32 @@ test("authentication entry points remain connected", async ({ page }) => {
 test("email and password sign-in requires the emailed OTP before navigation", async ({ page, isMobile }) => {
   let otpRequests = 0;
   let verifiedCode: string | undefined;
+  let authenticated = false;
+  const authRequestOrigins = new Set<string>();
 
   await page.addInitScript(() => {
     localStorage.setItem("treffin_onboarded", "true");
     localStorage.setItem("treffin_cookie_consent", "accepted");
   });
-  await page.route("**/api/auth/sign-in/email", async (route) => {
+  await page.route("**/api/auth/get-session", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(authenticated ? {
+        session: { id: "otp-session", userId: "otp-user", token: "otp-session-token", expiresAt: new Date(Date.now() + 3_600_000).toISOString() },
+        user: { id: "otp-user", name: "OTP Member", email: "member@example.test", image: null },
+      } : null),
+    });
+  });
+  await page.route("**/api/users/me", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ id: 1, betterAuthId: "otp-user", name: "OTP Member", interests: ["Science"] }) });
+  });
+  await page.route("**/api/notifications**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const body = path.endsWith("/preferences") ? { likes: true, replies: true, follows: true, debates: true } : [];
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  });  await page.route("**/api/auth/sign-in/email", async (route) => {
+    authRequestOrigins.add(new URL(route.request().url()).origin);
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -45,11 +65,14 @@ test("email and password sign-in requires the emailed OTP before navigation", as
     });
   });
   await page.route("**/api/auth/two-factor/send-otp", async (route) => {
+    authRequestOrigins.add(new URL(route.request().url()).origin);
     otpRequests += 1;
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: true }) });
   });
   await page.route("**/api/auth/two-factor/verify-otp", async (route) => {
+    authRequestOrigins.add(new URL(route.request().url()).origin);
     verifiedCode = (route.request().postDataJSON() as { code?: string }).code;
+    authenticated = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -67,9 +90,9 @@ test("email and password sign-in requires the emailed OTP before navigation", as
     });
   });
 
-  await page.goto("/sign-in");
+  await page.goto("/sign-in?next=%2Fnotifications");
   await page.getByLabel("Email").fill("member@example.test");
-  await page.getByLabel("Password").fill("A-secure-password-123!");
+  await page.getByLabel("Password", { exact: true }).fill("A-secure-password-123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Check your email" })).toBeVisible();
@@ -83,7 +106,9 @@ test("email and password sign-in requires the emailed OTP before navigation", as
   await page.getByLabel("One-time code").fill("123456");
   await page.getByRole("button", { name: "Verify and sign in" }).click();
   await expect.poll(() => verifiedCode).toBe("123456");
-  await expect(page).toHaveURL(/\/$/);
+  expect([...authRequestOrigins]).toEqual([new URL(page.url()).origin]);
+  await expect(page).toHaveURL(/\/notifications$/);
+  expect(await page.evaluate(() => sessionStorage.getItem("treffin_auth_token"))).toBe("otp-session-token");
 });
 test("password recovery requests a link and accepts a valid reset token", async ({ page }) => {
   let resetRequest: { email?: string; redirectTo?: string } | null = null;

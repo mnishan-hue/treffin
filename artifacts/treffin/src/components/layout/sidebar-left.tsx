@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Home, Compass, MessageSquare, FileText, Users, Bookmark, Bell, User, BarChart2, Info, X, Sigma } from "lucide-react";
@@ -33,6 +33,7 @@ function writeCachedCount(userId: string, count: number) {
 export function SidebarLeft() {
   const [location, setLocation] = useLocation();
   const { data: topics, isLoading: topicsLoading } = useGetTopics();
+  const topicList = useMemo(() => Array.isArray(topics) ? topics : [], [topics]);
   const [showAllTopics, setShowAllTopics] = useState(false);
   const { isSignedIn, user } = useSession();
   const userId = user?.id ?? null;
@@ -46,6 +47,10 @@ export function SidebarLeft() {
     enabled: !!isSignedIn,
     refetchInterval: 30_000,
   });
+  const notificationList = useMemo(
+    () => Array.isArray(notifications) ? notifications : undefined,
+    [notifications],
+  );
 
   // When the user signs in (without remount), rehydrate from their personal cache.
   useEffect(() => {
@@ -54,18 +59,18 @@ export function SidebarLeft() {
       return;
     }
     // Only rehydrate from cache if the API hasn't responded yet.
-    if (notifications === undefined) {
+    if (notificationList === undefined) {
       setPersistedUnread(readCachedCount(userId));
     }
   }, [isSignedIn, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update badge and cache once the API responds.
   useEffect(() => {
-    if (!isSignedIn || !userId || notifications === undefined) return;
-    const count = notifications.filter(n => !n.read).length;
+    if (!isSignedIn || !userId || notificationList === undefined) return;
+    const count = notificationList.filter(n => !n.read).length;
     setPersistedUnread(count);
     writeCachedCount(userId, count);
-  }, [notifications, isSignedIn, userId]);
+  }, [notificationList, isSignedIn, userId]);
 
   const unreadCount = persistedUnread;
 
@@ -136,7 +141,7 @@ export function SidebarLeft() {
             </div>
           ) : (
             <div className="flex flex-col gap-0.5">
-              {topics?.slice(0, 7).map(topic => (
+              {topicList.slice(0, 7).map(topic => (
                 <button
                   key={topic.id}
                   className="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors px-3 py-2 rounded-xl text-left w-full group"
@@ -173,7 +178,7 @@ export function SidebarLeft() {
               {topicsLoading ? (
                 Array(8).fill(0).map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-xl" />)
               ) : (
-                topics?.map(topic => (
+                topicList.map(topic => (
                   <button
                     key={topic.id}
                     className="flex items-center gap-3 text-sm px-3 py-2.5 rounded-xl hover:bg-muted transition-colors text-left"

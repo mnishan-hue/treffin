@@ -720,7 +720,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DailyQuestion"
+                oneOf:
+                  - $ref: "#/components/schemas/DailyQuestion"
+                  - type: "null"
 
   /stats/weekly-challenge:
     get:
@@ -733,7 +735,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WeeklyChallenge"
+                oneOf:
+                  - $ref: "#/components/schemas/WeeklyChallenge"
+                  - type: "null"
 
   /stats/daily-question/vote:
     post:
@@ -2803,6 +2807,98 @@ paths:
         "401":
           description: Unauthorized
 
+  /math/problems/{id}/elegance-battle/full:
+    get:
+      operationId: getEleganceBattleFull
+      tags: [math]
+      summary: Get full elegance battle data
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: Full battle
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MathBattleFullResponse" }
+        "400": { description: Invalid id }
+        "404": { description: Not found }
+
+  /math/problems/{id}/elegance-battle/arguments:
+    post:
+      operationId: postEleganceBattleArgument
+      tags: [math]
+      summary: Post a step argument
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PostEleganceBattleArgumentInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MathBattleArgument" }
+        "400": { description: Invalid argument }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+        "409": { description: Battle ended }
+
+  /math/problems/{id}/elegance-battle/arguments/{argId}/vote:
+    post:
+      operationId: voteEleganceBattleArgument
+      tags: [math]
+      summary: Toggle an argument vote
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: argId, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VoteEleganceBattleArgumentInput" }
+      responses:
+        "200":
+          description: Vote totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EleganceBattleArgumentVoteResult" }
+        "400": { description: Invalid vote }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+        "409": { description: Battle ended }
+
+  /math/problems/{id}/elegance-battle/conclude:
+    post:
+      operationId: concludeEleganceBattle
+      tags: [math]
+      summary: Conclude an elegance battle
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConcludeEleganceBattleInput" }
+      responses:
+        "200":
+          description: Concluded
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean }
+        "400": { description: Invalid verdict }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Not found }
+        "409": { description: Already ended }
   /math/problems/{id}/showdown:
     get:
       operationId: getMathShowdown
@@ -3771,7 +3867,7 @@ components:
 
     DailyQuestion:
       type: object
-      required: [id, question, supportPercent, againstPercent, participantCount, isLive, imageUrl]
+      required: [id, question, supportPercent, againstPercent, participantCount, isLive, imageUrl, myVote]
       properties:
         id:
           type: integer
@@ -3787,6 +3883,9 @@ components:
           type: boolean
         imageUrl:
           type: string
+        myVote:
+          type: ["string", "null"]
+          enum: [support, against, null]
 
     DailyQuestionInput:
       type: object
@@ -4040,7 +4139,7 @@ components:
 
     WeeklyChallenge:
       type: object
-      required: [id, question, startDate, endDate, isActive]
+      required: [id, question, startDate, endDate, isActive, hasSubmitted]
       properties:
         id:
           type: integer
@@ -4060,6 +4159,8 @@ components:
           type: ["string", "null"]
         winnerResponse:
           type: ["string", "null"]
+        hasSubmitted:
+          type: boolean
 
     WeeklyChallengeInput:
       type: object
@@ -5500,6 +5601,135 @@ components:
         myVotes:
           $ref: "#/components/schemas/MathShowdownMyVotes"
 
+    MathBattleStepSoundness:
+      type: object
+      required: [up, down]
+      properties:
+        up: { type: integer }
+        down: { type: integer }
+
+    MathBattleArgument:
+      type: object
+      required: [id, solutionId, stepIndex, userId, userName, content, upvotes, downvotes, isPinned, myVote, replies]
+      properties:
+        id: { type: integer }
+        solutionId: { type: integer }
+        stepIndex: { type: integer }
+        parentId: { type: ["integer", "null"] }
+        userId: { type: string }
+        userName: { type: string }
+        content: { type: string }
+        createdAt: { type: string }
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        isPinned: { type: boolean }
+        myVote: { type: ["string", "null"], enum: [up, down, null] }
+        replies:
+          type: array
+          items: { $ref: "#/components/schemas/MathBattleArgument" }
+
+    MathBattleSolutionVotes:
+      type: object
+      required: [elegant, clear, rigorous, efficient]
+      properties:
+        elegant: { type: integer }
+        clear: { type: integer }
+        rigorous: { type: integer }
+        efficient: { type: integer }
+
+    MathBattleSolution:
+      type: object
+      required: [id, userId, userName, approach, body, steps, stepSoundness, votes, isAccepted]
+      properties:
+        id: { type: integer }
+        userId: { type: string }
+        userName: { type: string }
+        approach: { type: string }
+        body: { type: string }
+        steps: { type: array, items: { type: string } }
+        stepSoundness:
+          type: array
+          items: { $ref: "#/components/schemas/MathBattleStepSoundness" }
+        votes: { $ref: "#/components/schemas/MathBattleSolutionVotes" }
+        isAccepted: { type: boolean }
+        solvingTime: { type: ["integer", "null"] }
+
+    MathBattleCategoryWinner:
+      type: object
+      properties:
+        solutionId: { type: integer }
+        votes: { type: integer }
+        stepCount: { type: integer }
+
+    MathBattleCategories:
+      type: object
+      properties:
+        mostElegant:
+          oneOf: [{ $ref: "#/components/schemas/MathBattleCategoryWinner" }, { type: "null" }]
+        mostRigorous:
+          oneOf: [{ $ref: "#/components/schemas/MathBattleCategoryWinner" }, { type: "null" }]
+        clearest:
+          oneOf: [{ $ref: "#/components/schemas/MathBattleCategoryWinner" }, { type: "null" }]
+        mostEfficient:
+          oneOf: [{ $ref: "#/components/schemas/MathBattleCategoryWinner" }, { type: "null" }]
+
+    MathBattleInfo:
+      type: object
+      required: [debateId, isLive, isEnded, canParticipate, canConclude]
+      properties:
+        debateId: { type: integer }
+        isLive: { type: boolean }
+        isEnded: { type: boolean }
+        verdict: { type: ["string", "null"] }
+        verdictAuthor: { type: ["string", "null"] }
+        canParticipate: { type: boolean }
+        canConclude: { type: boolean }
+
+    MathBattleFullResponse:
+      type: object
+      required: [problemId, problemTitle, solutions, arguments, myAxisVotes, categories]
+      properties:
+        problemId: { type: integer }
+        problemTitle: { type: string }
+        battle:
+          oneOf: [{ $ref: "#/components/schemas/MathBattleInfo" }, { type: "null" }]
+        solutions:
+          type: array
+          items: { $ref: "#/components/schemas/MathBattleSolution" }
+        arguments:
+          type: array
+          items: { $ref: "#/components/schemas/MathBattleArgument" }
+        myAxisVotes: { $ref: "#/components/schemas/MathShowdownMyVotes" }
+        categories: { $ref: "#/components/schemas/MathBattleCategories" }
+
+    PostEleganceBattleArgumentInput:
+      type: object
+      required: [solutionId, stepIndex, content]
+      properties:
+        solutionId: { type: integer }
+        stepIndex: { type: integer, minimum: 0 }
+        content: { type: string, minLength: 1, maxLength: 4000 }
+        parentId: { type: integer }
+
+    VoteEleganceBattleArgumentInput:
+      type: object
+      required: [vote]
+      properties:
+        vote: { type: string, enum: [up, down] }
+
+    EleganceBattleArgumentVoteResult:
+      type: object
+      required: [upvotes, downvotes, myVote]
+      properties:
+        upvotes: { type: integer }
+        downvotes: { type: integer }
+        myVote: { type: ["string", "null"], enum: [up, down, null] }
+
+    ConcludeEleganceBattleInput:
+      type: object
+      required: [verdict]
+      properties:
+        verdict: { type: string, minLength: 1, maxLength: 4000 }
     MathNotification:
       type: object
       required: [id, userId, type, title, body, isRead, createdAt]

@@ -119,6 +119,15 @@ function ArgumentCard({ arg, side, isOxford, round, canModerate, onPin, onRemove
   const qs = qualityScore({ ...arg, likes: likeCount });
   const serverReplies = arg.replies ?? [];
 
+  useEffect(() => {
+    setLiked(arg.likedByMe ?? false);
+    setLikeCount(arg.likes);
+  }, [arg.id, arg.likedByMe, arg.likes]);
+
+  useEffect(() => {
+    setReactState(arg.reactions ?? { fire: 0, think: 0, bulb: 0, myReaction: null });
+  }, [arg.id, arg.reactions]);
+
   const handleReact = async (reaction: "fire" | "think" | "bulb") => {
     if (!arg.debateId) return;
     if (!isSignedIn) { toast({ title: "Sign in to react", variant: "destructive" }); setLocation("/sign-in"); return; }
@@ -435,7 +444,7 @@ export default function DebateRoom() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const debateId = Number(id);
-  const { user, isSignedIn } = useSession();
+  const { user, isSignedIn, isLoaded } = useSession();
   const { triggerRep } = useAppContext();
 
   const { data: debate, isLoading } = useGetDebate(debateId, {
@@ -458,11 +467,11 @@ export default function DebateRoom() {
     queryKey: ["debate-comments", debateId],
     queryFn: async () => {
       const token = await getToken();
-      return fetch(getApiUrl(`/api/debates/${debateId}/comments`), {
+      const response = await fetch(getApiUrl(`/api/debates/${debateId}/comments`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []);
+      });
+      if (!response.ok) throw new Error("Could not load debate arguments");
+      return response.json();
     },
     enabled: !!debateId,
     refetchInterval: 10_000,
@@ -475,18 +484,23 @@ export default function DebateRoom() {
   const [voteInitialized, setVoteInitialized] = useState(false);
   const [support, setSupport] = useState<number | null>(null);
   const [against, setAgainst] = useState<number | null>(null);
+  const voteSubmissionRef = useRef(false);
+  const myVoteQueryKey = [...getGetMyDebateVoteQueryKey(debateId), user?.id ?? "anonymous"] as const;
 
   const { data: myVoteData, isLoading: myVoteLoading } = useGetMyDebateVote(debateId, {
     query: {
-      enabled: !!debateId,
-      queryKey: getGetMyDebateVoteQueryKey(debateId),
+      enabled: !!debateId && isLoaded && isSignedIn,
+      queryKey: myVoteQueryKey,
     },
   });
 
   useEffect(() => {
     setUserVote(null);
     setVoteInitialized(false);
-  }, [debateId]);
+    setArgSide("support");
+    setSideLocked(false);
+    voteSubmissionRef.current = false;
+  }, [debateId, user?.id]);
 
   useEffect(() => {
     if (!voteInitialized && myVoteData !== undefined) {
@@ -617,6 +631,9 @@ export default function DebateRoom() {
           });
       setSupportArgs(bySide("support"));
       setAgainstArgs(bySide("against"));
+    } else if (all) {
+      setSupportArgs([]);
+      setAgainstArgs([]);
     }
   }, [commentsQuery.data, debateId]);
 
@@ -911,20 +928,25 @@ export default function DebateRoom() {
       : againstArgs[0];
 
   const handleVote = (vote: "support" | "against") => {
-    if (userVote) return;
+    if (userVote || voteSubmissionRef.current) return;
     if (!user) {
       toast({ title: "Sign in to vote", description: "Create a free account to take a stance and join the debate.", variant: "destructive" });
       setTimeout(() => setLocation("/sign-in"), 1200);
       return;
     }
+    voteSubmissionRef.current = true;
     voteDebate.mutate(
       { id: debateId, data: { vote } },
       {
         onSuccess: (d) => {
+          voteSubmissionRef.current = false;
           setUserVote(vote);
           setSupport(d.supportPercent);
           setAgainst(d.againstPercent);
+          queryClient.setQueryData(myVoteQueryKey, { side: vote });
+          setHasLeftDebate(false);
           queryClient.invalidateQueries({ queryKey: getGetDebateQueryKey(debateId) });
+          queryClient.invalidateQueries({ queryKey: getGetDebateAgreementsQueryKey(debateId) });
           toast({ title: `Voted ${vote === "support" ? "in support" : "against"}!` });
           setTimeout(() => setShowVoteAnnotationPrompt(true), 600);
           // Key is per-user so multiple accounts on the same device each
@@ -939,6 +961,7 @@ export default function DebateRoom() {
           }
         },
         onError: (err: unknown) => {
+          voteSubmissionRef.current = false;
           const status = (err as { status?: number })?.status;
           if (status === 429) {
             toast({ title: "Slow down", description: "You're voting too fast. Please wait a moment and try again.", variant: "destructive" });
@@ -955,7 +978,17 @@ export default function DebateRoom() {
 
   const handleAddSource = () => {
     if (!sourceInput.trim()) return;
-    setSources(p => [...p, { url: sourceInput.trim(), label: sourceLabelInput.trim() || sourceInput.trim() }]);
+    let parsed: URL;
+    try { parsed = new URL(sourceInput.trim()); } catch {
+      toast({ title: "Invalid source URL", description: "Enter a complete http:// or https:// URL.", variant: "destructive" }); return;
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      toast({ title: "Invalid source URL", description: "Only http:// and https:// links are allowed.", variant: "destructive" }); return;
+    }
+    if (sources.length >= 10) {
+      toast({ title: "Source limit reached", description: "You can attach up to 10 sources.", variant: "destructive" }); return;
+    }
+    setSources(p => [...p, { url: parsed.toString(), label: (sourceLabelInput.trim() || parsed.hostname).slice(0, 160) }]);
     setSourceInput(""); setSourceLabelInput(""); setShowSourceField(false);
   };
 
@@ -1017,18 +1050,22 @@ export default function DebateRoom() {
   const handleAcknowledgeRules = async () => {
     try {
       const token = await getToken();
-      await fetch(getApiUrl("/api/debates/rules-ack"), {
+      const response = await fetch(getApiUrl("/api/debates/rules-ack"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: "Could not save acknowledgment" }));
+        throw new Error(error.error ?? "Could not save acknowledgment");
+      }
       setRulesAcked(true);
       setShowRulesModal(false);
       handlePostArgument();
-    } catch {
-      toast({ title: "Could not save acknowledgment", variant: "destructive" });
+    } catch (error) {
+      toast({ title: error instanceof Error ? error.message : "Could not save acknowledgment", variant: "destructive" });
     }
   };
 
@@ -1047,7 +1084,13 @@ export default function DebateRoom() {
         toast({ title: err.error ?? "Could not leave debate", variant: "destructive" }); return;
       }
       setHasLeftDebate(true);
+      setUserVote(null);
+      setArgSide("support");
+      setSideLocked(false);
+      setNewAgreement("");
+      queryClient.setQueryData(myVoteQueryKey, { side: null });
       queryClient.invalidateQueries({ queryKey: getGetDebateQueryKey(debateId) });
+      queryClient.invalidateQueries({ queryKey: getGetDebateAgreementsQueryKey(debateId) });
       toast({ title: "Left debate", description: "You've opted out. Your arguments remain visible." });
     } catch {
       toast({ title: "Could not leave debate", variant: "destructive" });
@@ -1847,16 +1890,22 @@ export default function DebateRoom() {
                   <button
                     className="ml-auto bg-primary hover:bg-primary/90 text-white font-semibold px-5 py-2 rounded-full text-sm transition-colors disabled:opacity-50"
                     onClick={handlePostArgument}
-                    disabled={!newArg.trim() || wordCount < 30 || isPostingArg}
+                    disabled={!userVote || !newArg.trim() || wordCount < 30 || isPostingArg}
                     data-testid="button-post-argument"
                   >
-                    {isPostingArg ? <><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Posting…</> : "Post Argument"}
+                    {isPostingArg ? <><Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />Posting…</> : !userVote ? "Vote Before Posting" : "Post Argument"}
                   </button>
                 </div>
               </div>
             )}
 
             {/* Arguments */}
+            {commentsQuery.isError && (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-xl border border-red-500/25 bg-red-500/5 p-4">
+                <p className="text-sm text-red-300">Arguments could not be loaded. Your debate data is safe.</p>
+                <button className="text-xs font-semibold text-red-300 border border-red-500/30 rounded-full px-3 py-1.5" onClick={() => commentsQuery.refetch()}>Try again</button>
+              </div>
+            )}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="flex flex-col gap-3">
                 <h3 className="text-sm font-bold text-indigo-400 flex items-center gap-2">
@@ -1912,7 +1961,7 @@ export default function DebateRoom() {
                 </p>
               )}
 
-              {canPost && (
+              {canPost && !outcome && debate?.isLive && (
                 <div className="border-t border-green-500/10 pt-4 flex flex-col gap-2">
                   <textarea
                     className="w-full bg-muted/30 border border-green-500/20 rounded-xl p-3 text-sm resize-none outline-none focus:border-green-500/50 focus:ring-1 focus:ring-green-500/20 placeholder:text-muted-foreground"

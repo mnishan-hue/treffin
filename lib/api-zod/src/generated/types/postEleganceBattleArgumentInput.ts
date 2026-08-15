@@ -8,7 +8,12 @@
 
 export interface PostEleganceBattleArgumentInput {
   solutionId: number;
+  /** @minimum 0 */
   stepIndex: number;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
   content: string;
   parentId?: number;
 }

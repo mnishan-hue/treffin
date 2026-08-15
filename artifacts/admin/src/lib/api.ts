@@ -1,3 +1,5 @@
+import { reportAdminRequestError } from "./admin-events";
+
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
 export const API_BASE = `${apiOrigin}/api`;
 
@@ -24,7 +26,9 @@ async function request<T>(
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? "Request failed");
+    const message = err.error ?? `Request failed (${res.status})`;
+    reportAdminRequestError(message);
+    throw new Error(message);
   }
   return res.json();
 }

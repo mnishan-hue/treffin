@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { AppLayout } from "@/components/layout/app-layout";
 import { useGetFeed, getGetFeedQueryKey, useGetDailyQuestion, useGetDebates, getGetDebatesQueryKey, useGetArticles, getGetArticlesQueryKey, useGetTopThinkers, useGetCurrentUser, getGetCurrentUserQueryKey, useGetCommunities, getGetCommunitiesQueryKey, useVoteDailyQuestion, useSubmitWeeklyChallenge, useGetWeeklyChallenge } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,23 +66,22 @@ function LoadError({ label, retry }: { label: string; retry: () => void }) {
   );
 }
 function HeroDailyQuestion() {
-  const { data: dailyQuestion, isLoading } = useGetDailyQuestion();
+  const { data: dailyQuestion, isLoading, isError, refetch } = useGetDailyQuestion();
   const { mutateAsync: voteMutation, isPending: isVoting } = useVoteDailyQuestion();
   const [voted, setVoted] = useState<"support" | "against" | null>(null);
   const [liveStats, setLiveStats] = useState<{ support: number; against: number; count: number } | null>(null);
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [voteError, setVoteError] = useState<string | null>(null);
   const { isSignedIn } = useSession();
-
-  const voteKey = dailyQuestion ? `treffin_daily_vote_${dailyQuestion.id ?? dailyQuestion.question}` : null;
+  const voteInFlight = useRef(false);
 
   useEffect(() => {
-    if (!voteKey) { setVoted(null); return; }
-    const stored = localStorage.getItem(voteKey);
-    setVoted(stored === "support" || stored === "against" ? stored : null);
-  }, [voteKey]);
-
+    const serverVote = dailyQuestion?.myVote;
+    setVoted(serverVote === "support" || serverVote === "against" ? serverVote : null);
+    setLiveStats(null);
+  }, [dailyQuestion?.id, dailyQuestion?.myVote]);
   if (isLoading) return <Skeleton className="w-full h-[200px] rounded-2xl" />;
+  if (isError) return <LoadError label="Daily question" retry={() => { void refetch(); }} />;
   if (!dailyQuestion) return null;
 
   const support = liveStats?.support ?? dailyQuestion.supportPercent;
@@ -90,27 +89,32 @@ function HeroDailyQuestion() {
   const participantCount = liveStats?.count ?? dailyQuestion.participantCount;
 
   const handleVote = async (side: "support" | "against") => {
-    if (voted || isVoting) return;
-    if (!isSignedIn) { setNeedsSignIn(true); setTimeout(() => setNeedsSignIn(false), 3000); return; }
+    if (voted || isVoting || voteInFlight.current) return;
+    if (!isSignedIn) {
+      setNeedsSignIn(true);
+      window.setTimeout(() => setNeedsSignIn(false), 3000);
+      return;
+    }
     setVoteError(null);
+    voteInFlight.current = true;
     try {
       const result = await voteMutation({ data: { side } });
-      setVoted(side);
-      if (voteKey) localStorage.setItem(voteKey, side);
+      setVoted(result.myVote ?? side);
       setLiveStats({ support: result.supportPercent, against: result.againstPercent, count: result.participantCount });
     } catch (error: any) {
       const status = error?.status ?? error?.response?.status;
       if (status === 409) {
-        setVoted(side);
-        if (voteKey) localStorage.setItem(voteKey, side);
+        const refreshed = await refetch();
+        const serverVote = refreshed.data?.myVote;
+        setVoted(serverVote === "support" || serverVote === "against" ? serverVote : null);
       } else {
         setVoted(null);
-        if (voteKey) localStorage.removeItem(voteKey);
         setVoteError(status === 401 ? "Please sign in again to vote." : "Your vote was not saved. Please try again.");
       }
+    } finally {
+      voteInFlight.current = false;
     }
   };
-
   return (
     <div className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/15 via-primary/5 to-card">
       {/* Background glow */}
@@ -220,12 +224,11 @@ function WeeklyChallengeCard() {
   const { data: challenge, isLoading, isError, refetch } = useGetWeeklyChallenge();
   const { mutateAsync: submitChallenge, isPending: isSubmitting } = useSubmitWeeklyChallenge();
   const { isSignedIn } = useSession();
+  const submitInFlight = useRef(false);
 
-  const submitKey = challenge ? "treffin_weekly_challenge_" + challenge.id : null;
   useEffect(() => {
-    setSubmitted(!!submitKey && localStorage.getItem(submitKey) !== null);
-  }, [submitKey]);
-
+    setSubmitted(Boolean(challenge?.hasSubmitted));
+  }, [challenge?.id, challenge?.hasSubmitted]);
   if (isLoading) return <Skeleton className="w-full h-[260px] rounded-2xl" />;
   if (isError) {
     return (
@@ -254,24 +257,25 @@ function WeeklyChallengeCard() {
   const overLimit = wc > 300;
 
   const handleSubmit = async () => {
-    if (!response.trim() || overLimit || isSubmitting || !submitKey || winner) return;
+    if (!response.trim() || overLimit || isSubmitting || submitInFlight.current || winner) return;
     if (!isSignedIn) {
       setSubmitError("Sign in to submit your response.");
       return;
     }
     setSubmitError(null);
+    submitInFlight.current = true;
     try {
       await submitChallenge({ data: { response: response.trim() } });
       setSubmitted(true);
-      localStorage.setItem(submitKey, "submitted");
     } catch (error: any) {
       const message = error?.data?.error ?? error?.message ?? "";
       if (error?.status === 409 && message.toLowerCase().includes("already submitted")) {
         setSubmitted(true);
-        localStorage.setItem(submitKey, "submitted");
       } else {
         setSubmitError(message || "Submission failed. Please try again.");
       }
+    } finally {
+      submitInFlight.current = false;
     }
   };
 
@@ -386,25 +390,27 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("for_you");
   const [showScrollTop, setShowScrollTop] = useState(false);
   const { data: communities, isLoading: communitiesLoading, isError: communitiesError, refetch: refetchCommunities } = useGetCommunities({
-    query: { queryKey: getGetCommunitiesQueryKey(), staleTime: 120_000, refetchOnWindowFocus: false },
+    query: { queryKey: getGetCommunitiesQueryKey(), enabled: tab === "communities", staleTime: 120_000, refetchOnWindowFocus: false },
   });
 
   const [showModal, setShowModal] = useState(false);
   const [banner, setBanner] = useState<string[] | null>(null);
 
-  const { isSignedIn } = useSession();
+  const { isSignedIn, user } = useSession();
+  const interestStorageKey = user?.id ? `${INTERESTS_STORAGE_KEY}_${user.id}` : INTERESTS_STORAGE_KEY;
+  const interestSkipKey = user?.id ? `treffin_interests_skipped_${user.id}` : "treffin_interests_skipped_guest";
   const { data: currentUser, isLoading: currentUserLoading } = useGetCurrentUser({
     query: { queryKey: getGetCurrentUserQueryKey(), enabled: !!isSignedIn, retry: false, staleTime: 60_000 },
   });
 
   useEffect(() => {
-    if (localStorage.getItem(INTERESTS_STORAGE_KEY)) return;
-    if (isSignedIn && currentUserLoading) return;
+    if (localStorage.getItem(interestStorageKey) || sessionStorage.getItem(interestSkipKey)) return;
+    if (isSignedIn && (currentUserLoading || !currentUser)) return;
 
     if (isSignedIn && currentUser) {
       const dbInterests = currentUser.interests;
       if (Array.isArray(dbInterests) && dbInterests.length > 0) {
-        localStorage.setItem(INTERESTS_STORAGE_KEY, JSON.stringify(dbInterests));
+        localStorage.setItem(interestStorageKey, JSON.stringify(dbInterests));
         return;
       }
     }
@@ -413,7 +419,7 @@ export default function Home() {
 
     const t = setTimeout(() => setShowModal(true), 600);
     return () => clearTimeout(t);
-  }, [isSignedIn, currentUserLoading, currentUser]);
+  }, [isSignedIn, currentUserLoading, currentUser, interestStorageKey, interestSkipKey]);
 
   const handleModalDone = (selected: string[]) => {
     setShowModal(false);
@@ -422,21 +428,22 @@ export default function Home() {
   };
 
   const handleModalSkip = () => {
+    sessionStorage.setItem(interestSkipKey, "1");
     setShowModal(false);
   };
 
   const feedParams = { tab } as const;
   const { data: feedData, isLoading: feedLoading, isError: feedError, refetch: refetchFeed } = useGetFeed(
     feedParams,
-    { query: { queryKey: getGetFeedQueryKey(feedParams), staleTime: 30_000, refetchOnMount: true, refetchOnWindowFocus: false } }
+    { query: { queryKey: getGetFeedQueryKey(feedParams), enabled: tab === "for_you" || tab === "following", staleTime: 30_000, refetchOnMount: true, refetchOnWindowFocus: false } }
   );
   const { data: debates, isLoading: debatesLoading, isError: debatesError, refetch: refetchDebates } = useGetDebates(
     {},
-    { query: { queryKey: getGetDebatesQueryKey({}), staleTime: 60_000, refetchOnWindowFocus: false } },
+    { query: { queryKey: getGetDebatesQueryKey({}), enabled: tab === "debates", staleTime: 60_000, refetchOnWindowFocus: false } },
   );
   const { data: articles, isLoading: articlesLoading, isError: articlesError, refetch: refetchArticles } = useGetArticles(
     {},
-    { query: { queryKey: getGetArticlesQueryKey({}), staleTime: 60_000, refetchOnWindowFocus: false } },
+    { query: { queryKey: getGetArticlesQueryKey({}), enabled: tab === "articles", staleTime: 60_000, refetchOnWindowFocus: false } },
   );
 
   useEffect(() => { if (topicFilter) setTab("for_you"); }, [topicFilter]);
@@ -564,7 +571,7 @@ export default function Home() {
               ) : (
                 liveDebates.slice(0, 8).map((debate, index) => (
                   <motion.div key={debate.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
-                    <Link href={`/debates/${debate.id}`}>
+                    <Link href={debate.mathProblemId ? `/math/problem/${debate.mathProblemId}/elegance-battle` : `/debates/${debate.id}`}>
                       <div className="bg-card border border-border/60 rounded-xl p-4 hover:border-primary/40 cursor-pointer transition-all group">
                         <div className="flex justify-between items-start mb-2 gap-2 flex-wrap">
                           <CategoryPill category={debate.category} />
@@ -574,14 +581,20 @@ export default function Home() {
                           </div>
                         </div>
                         <h3 className="font-bold text-sm group-hover:text-primary transition-colors">{debate.title}</h3>
-                        <div className="flex flex-col gap-1.5 mt-3">
-                          <div className="flex justify-between text-xs font-semibold"><span className="text-indigo-400">Support {debate.supportPercent}%</span><span className="text-rose-400">Against {debate.againstPercent}%</span></div>
-                          <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden flex">
-                            <div className="h-full bg-indigo-500" style={{ width: `${debate.supportPercent}%` }} />
-                            <div className="h-full bg-rose-500" style={{ width: `${debate.againstPercent}%` }} />
+                        {debate.mathProblemId ? (
+                          <div className="mt-3 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-xs text-violet-300">
+                            Compare solutions across elegance, clarity, rigor, and efficiency.
                           </div>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="w-3 h-3" /> {formatNumber(debate.participantCount)} participants</div>
-                        </div>
+                        ) : (
+                          <div className="flex flex-col gap-1.5 mt-3">
+                            <div className="flex justify-between text-xs font-semibold"><span className="text-indigo-400">Support {debate.supportPercent}%</span><span className="text-rose-400">Against {debate.againstPercent}%</span></div>
+                            <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden flex">
+                              <div className="h-full bg-indigo-500" style={{ width: `${debate.supportPercent}%` }} />
+                              <div className="h-full bg-rose-500" style={{ width: `${debate.againstPercent}%` }} />
+                            </div>
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground"><Users className="w-3 h-3" /> {formatNumber(debate.participantCount)} participants</div>
+                          </div>
+                        )}
                       </div>
                     </Link>
                   </motion.div>

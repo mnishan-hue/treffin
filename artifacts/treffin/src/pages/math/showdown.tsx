@@ -14,7 +14,7 @@ import { MathText } from "@/components/math/math-renderer";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
-import { getMathUserId } from "@/lib/math-auth";
+import { useSession } from "@/lib/auth-client";
 import { parseSteps } from "@/pages/math/problem-detail";
 import {
   ArrowLeft, Sparkles, Eye, ShieldCheck, Zap, MessageSquare,
@@ -271,9 +271,11 @@ export default function MathShowdown() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { user, isLoaded: isSessionLoaded } = useSession();
+  const showdownQueryKey = [...getGetMathShowdownQueryKey(problemId), user?.id ?? "guest"] as const;
 
-  const { data, isLoading } = useGetMathShowdown(problemId, {
-    query: { queryKey: getGetMathShowdownQueryKey(problemId), enabled: !isNaN(problemId) },
+  const { data, isLoading, isError, refetch } = useGetMathShowdown(problemId, {
+    query: { queryKey: showdownQueryKey, enabled: !isNaN(problemId) && isSessionLoaded },
   });
   const { data: existingBattle } = useGetEleganceBattle(problemId, {
     query: { queryKey: getGetEleganceBattleQueryKey(problemId), enabled: !isNaN(problemId) },
@@ -314,7 +316,7 @@ export default function MathShowdown() {
   };
 
   const handleVote = (axis: Axis, solutionId: number) => {
-    if (!getMathUserId()) {
+    if (!user) {
       toast({ title: "Sign in required", description: "Please sign in to vote.", variant: "destructive" });
       return;
     }
@@ -322,17 +324,18 @@ export default function MathShowdown() {
       { id: problemId, data: { axis, solutionId } },
       {
         onSuccess: (updated) => {
-          queryClient.setQueryData(getGetMathShowdownQueryKey(problemId), updated);
+          queryClient.setQueryData(showdownQueryKey, updated);
         },
-        onError: () => {
-          toast({ title: "Error", description: "Failed to record your vote.", variant: "destructive" });
+        onError: (error: unknown) => {
+          const message = (error as { data?: { error?: string } })?.data?.error ?? "Failed to record your vote.";
+          toast({ title: "Vote not recorded", description: message, variant: "destructive" });
         },
       },
     );
   };
 
   const handleDiscuss = () => {
-    if (!getMathUserId()) {
+    if (!user) {
       toast({ title: "Sign in required", description: "Please sign in to discuss.", variant: "destructive" });
       return;
     }
@@ -358,7 +361,11 @@ export default function MathShowdown() {
           winnerAuthority: isMod ? winnerAuthority : "admin",
       }},
       {
-        onSuccess: () => { setShowModChoice(false); navigate(`/math/problem/${problemId}/elegance-battle`); },
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getGetEleganceBattleQueryKey(problemId) });
+          setShowModChoice(false);
+          navigate(`/math/problem/${problemId}/elegance-battle`);
+        },
         onError: (err: unknown) => {
           const msg =
             (err as { data?: { error?: string } })?.data?.error ??
@@ -369,6 +376,16 @@ export default function MathShowdown() {
     );
   };
 
+  if (isError) {
+    return (
+      <div className="container mx-auto px-4 py-16 max-w-2xl text-center space-y-4">
+        <Swords className="w-10 h-10 mx-auto text-muted-foreground/40" />
+        <p className="font-semibold">Could not load this solution showdown.</p>
+        <p className="text-sm text-muted-foreground">Check your connection and try again.</p>
+        <button className="px-4 py-2 rounded-lg border border-border" onClick={() => refetch()}>Try again</button>
+      </div>
+    );
+  }
   if (isLoading || !data) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-6xl space-y-5">
@@ -721,7 +738,7 @@ export default function MathShowdown() {
       {/* ── Elegance Battle Moderator Choice Modal ────────────────── */}
       {showModChoice && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 overflow-y-auto flex items-center justify-center p-4" onClick={() => setShowModChoice(false)}>
-          <div className="bg-card border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card border border-border rounded-2xl p-4 sm:p-6 w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-2xl flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-lg">⚔</span>

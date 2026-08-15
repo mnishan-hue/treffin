@@ -37,41 +37,55 @@ export default function Featured() {
 
   const load = async () => {
     setLoading(true);
-    const [d, a] = await Promise.all([
-      api.get<AdminDebate[]>("/admin/debates"),
-      api.get<AdminArticle[]>("/admin/articles"),
-    ]);
-    setDebates(d);
-    setArticles(a);
-    setLoading(false);
+    try {
+      const [d, a] = await Promise.all([
+        api.get<AdminDebate[]>("/admin/debates"),
+        api.get<AdminArticle[]>("/admin/articles"),
+      ]);
+      setDebates(d);
+      setArticles(a);
+    } catch {
+      // The shared API handler displays the actionable error.
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, []);
 
   const toggleDebateFeatured = async (id: number, value: boolean) => {
-    if (value && debates.filter((d) => d.isFeatured).length >= MAX_FEATURED) {
+    if (value && debates.filter((item) => item.isFeatured).length >= MAX_FEATURED) {
       setWarn("Max 3 featured debates allowed. Remove one first.");
       setTimeout(() => setWarn(null), 3000);
       return;
     }
     setBusyId(`debate-${id}`);
-    await api.patch(`/admin/debates/${id}/featured`, { isFeatured: value });
-    setDebates((ds) => ds.map((d) => d.id === id ? { ...d, isFeatured: value } : d));
-    setBusyId(null);
+    try {
+      await api.patch(`/admin/debates/${id}/featured`, { isFeatured: value });
+      setDebates((items) => items.map((item) => item.id === id ? { ...item, isFeatured: value } : item));
+    } catch {
+      // Keep the server-confirmed value when the request fails.
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const toggleArticleFeatured = async (id: number, value: boolean) => {
-    if (value && articles.filter((a) => a.isFeatured).length >= MAX_FEATURED) {
+    if (value && articles.filter((item) => item.isFeatured).length >= MAX_FEATURED) {
       setWarn("Max 3 featured articles allowed. Remove one first.");
       setTimeout(() => setWarn(null), 3000);
       return;
     }
     setBusyId(`article-${id}`);
-    await api.patch(`/admin/articles/${id}/featured`, { isFeatured: value });
-    setArticles((as) => as.map((a) => a.id === id ? { ...a, isFeatured: value } : a));
-    setBusyId(null);
+    try {
+      await api.patch(`/admin/articles/${id}/featured`, { isFeatured: value });
+      setArticles((items) => items.map((item) => item.id === id ? { ...item, isFeatured: value } : item));
+    } catch {
+      // Keep the server-confirmed value when the request fails.
+    } finally {
+      setBusyId(null);
+    }
   };
-
   if (loading) return <div className="text-muted-foreground py-8 text-center">Loading…</div>;
 
   const featuredDebates = debates.filter((d) => d.isFeatured);

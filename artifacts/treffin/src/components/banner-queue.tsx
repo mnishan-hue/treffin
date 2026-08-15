@@ -1,201 +1,248 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useSession } from "@/lib/auth-client";
-import { Cookie, X, Download, Share, Bell } from "lucide-react";
-import { enablePushNotifications } from "@/lib/push";
+import { Bell, Download, Share, X } from "lucide-react";
+import {
+  enablePushNotifications,
+  isPushAvailable,
+  showLocalNotification,
+} from "@/lib/push";
 
-const COOKIE_KEY = "treffin_cookie_consent";
-const INSTALL_KEY = "treffin_pwa_dismissed";
+const INSTALL_DISMISSED_KEY = "treffin_pwa_dismissed_at";
+const INSTALL_ACCEPTED_KEY = "treffin_pwa_installed";
 const PUSH_KEY = "treffin_push_prompted";
-
+const COOKIE_KEY = "treffin_cookie_consent";
+const COOKIE_EVENT = "treffin:cookie-consent";
 const AUTH_ROUTES = ["/", "/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding"];
 const INSTALL_MIN_MS = 30_000;
 const BETWEEN_MS = 1_500;
+const INSTALL_REPROMPT_MS = 7 * 24 * 60 * 60 * 1_000;
+
+type BannerType = "install" | "push";
+type InstallPlatform = "android" | "ios" | null;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-type BannerType = "cookie" | "push" | "install";
-
-function isBannerNeeded(type: BannerType): boolean {
-  if (type === "cookie") return !localStorage.getItem(COOKIE_KEY);
-  if (type === "push") {
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) return false;
-    if (Notification.permission !== "default") return false;
-    return !localStorage.getItem(PUSH_KEY);
-  }
-  if (type === "install") {
-    if (localStorage.getItem(INSTALL_KEY)) return false;
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true);
-    return !isStandalone;
-  }
-  return false;
+function runningStandalone(): boolean {
+  return window.matchMedia("(display-mode: standalone)").matches
+    || (navigator as { standalone?: boolean }).standalone === true;
 }
 
-const QUEUE: BannerType[] = ["cookie", "push", "install"];
+function installWasRecentlyDismissed(): boolean {
+  const raw = localStorage.getItem(INSTALL_DISMISSED_KEY);
+  if (!raw) return false;
+  const dismissedAt = Number(raw);
+  if (!Number.isFinite(dismissedAt)) {
+    localStorage.removeItem(INSTALL_DISMISSED_KEY);
+    return false;
+  }
+  return Date.now() - dismissedAt < INSTALL_REPROMPT_MS;
+}
 
+/**
+ * Owns the post-login install/notification sequence. Only one card can be
+ * visible. On phones, install comes first; notification permission is offered
+ * after Treffin is launched in standalone mode.
+ */
 export function BannerQueue() {
   const [location] = useLocation();
   const { isSignedIn, isLoaded } = useSession();
-
   const [current, setCurrent] = useState<BannerType | null>(null);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installReady, setInstallReady] = useState(false);
-  const [installPlatform, setInstallPlatform] = useState<"android" | "ios" | null>(null);
+  const [installPlatform, setInstallPlatform] = useState<InstallPlatform>(null);
+  const [standalone] = useState(runningStandalone);
+  const [cookieHandled, setCookieHandled] = useState(() => Boolean(localStorage.getItem(COOKIE_KEY)));
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState("");
+  const appEntryTime = useRef(Date.now());
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const appEntryTime = useRef<number | null>(null);
+  const isLandingPage = AUTH_ROUTES.some((route) => location === route || location.startsWith("/sign-"));
+  const shouldShow = isLoaded && isSignedIn && !isLandingPage && cookieHandled;
 
-  const isLandingPage = AUTH_ROUTES.some((r) => location === r || location.startsWith("/sign-"));
-  const shouldShow = isLoaded && isSignedIn && !isLandingPage;
+  const isNeeded = useCallback((type: BannerType): boolean => {
+    if (type === "install") {
+      return !standalone
+        && installReady
+        && !localStorage.getItem(INSTALL_ACCEPTED_KEY)
+        && !installWasRecentlyDismissed();
+    }
+
+    const previousPushState = localStorage.getItem(PUSH_KEY);
+    const canRetryLegacyAttempt = previousPushState === "asked";
+    return standalone
+      && isPushAvailable()
+      && Notification.permission === "default"
+      && (!previousPushState || canRetryLegacyAttempt);
+  }, [installReady, standalone]);
+
+  const schedule = useCallback((type: BannerType | null, delay: number) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!type) {
+      setCurrent(null);
+      return;
+    }
+    timerRef.current = setTimeout(() => setCurrent(type), delay);
+  }, []);
+
+  const advance = useCallback((from: BannerType) => {
+    const order: BannerType[] = ["install", "push"];
+    const next = order.slice(order.indexOf(from) + 1).find(isNeeded) ?? null;
+    schedule(next, BETWEEN_MS);
+  }, [isNeeded, schedule]);
 
   useEffect(() => {
-    const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const isStandalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      ("standalone" in navigator && (navigator as { standalone?: boolean }).standalone === true);
+    const handleConsent = () => setCookieHandled(Boolean(localStorage.getItem(COOKIE_KEY)));
+    window.addEventListener(COOKIE_EVENT, handleConsent);
+    window.addEventListener("storage", handleConsent);
+    return () => {
+      window.removeEventListener(COOKIE_EVENT, handleConsent);
+      window.removeEventListener("storage", handleConsent);
+    };
+  }, []);
 
-    if (isIos && !isStandalone) {
+  useEffect(() => {
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (ios && !standalone) {
       setInstallPlatform("ios");
       setInstallReady(true);
     }
 
-    const handler = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+    const beforeInstall = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
       setInstallPlatform("android");
       setInstallReady(true);
     };
-    window.addEventListener("beforeinstallprompt", handler);
-    return () => window.removeEventListener("beforeinstallprompt", handler);
-  }, []);
+    const installed = () => {
+      localStorage.setItem(INSTALL_ACCEPTED_KEY, "1");
+      localStorage.removeItem(INSTALL_DISMISSED_KEY);
+      setCurrent(null);
+    };
 
-  const advance = useCallback((from: BannerType) => {
-    const idx = QUEUE.indexOf(from);
-    const remaining = QUEUE.slice(idx + 1);
-    const next = remaining.find(isBannerNeeded) ?? null;
-
-    if (!next) { setCurrent(null); return; }
-
-    if (next === "install") {
-      const elapsed = appEntryTime.current ? Date.now() - appEntryTime.current : 0;
-      const wait = Math.max(BETWEEN_MS, INSTALL_MIN_MS - elapsed);
-      setTimeout(() => setCurrent("install"), wait);
-    } else {
-      setTimeout(() => setCurrent(next), BETWEEN_MS);
-    }
-  }, []);
+    window.addEventListener("beforeinstallprompt", beforeInstall);
+    window.addEventListener("appinstalled", installed);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", beforeInstall);
+      window.removeEventListener("appinstalled", installed);
+    };
+  }, [standalone]);
 
   useEffect(() => {
-    if (!shouldShow) { setCurrent(null); return; }
+    if (!shouldShow) {
+      schedule(null, 0);
+      return;
+    }
 
-    appEntryTime.current = Date.now();
-    // cookie is first in queue — included here so it only shows post-login
-    const first = QUEUE.find(isBannerNeeded) ?? null;
-    const timer = setTimeout(() => setCurrent(first), 1_500);
-    return () => clearTimeout(timer);
-  }, [shouldShow]);
+    const first: BannerType | null = isNeeded("install")
+      ? "install"
+      : isNeeded("push") ? "push" : null;
+    const elapsed = Date.now() - appEntryTime.current;
+    const delay = first === "install"
+      ? Math.max(BETWEEN_MS, INSTALL_MIN_MS - elapsed)
+      : BETWEEN_MS;
+    schedule(first, delay);
+  }, [isNeeded, schedule, shouldShow]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
 
   if (!shouldShow || !current) return null;
 
-  if (current === "cookie") {
-    const done = (choice: "accepted" | "declined") => {
-      localStorage.setItem(COOKIE_KEY, choice);
-      advance("cookie");
-    };
-    return (
-      <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "hsl(var(--card))", borderTop: "1px solid hsl(var(--border))", padding: "14px 20px", zIndex: 9999, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", boxShadow: "0 -4px 24px rgba(0,0,0,0.18)" }}>
-        <Cookie size={20} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />
-        <p style={{ flex: 1, margin: 0, fontSize: 13, color: "hsl(var(--muted-foreground))", minWidth: 200 }}>
-          We use cookies for authentication and improving your experience.{" "}
-          <a href="/privacy" style={{ color: "hsl(var(--primary))", textDecoration: "none" }}>Privacy Policy</a>
-        </p>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-          <button onClick={() => done("declined")} style={{ background: "none", border: "1px solid hsl(var(--border))", borderRadius: 8, padding: "6px 14px", fontSize: 13, color: "hsl(var(--muted-foreground))", cursor: "pointer" }}>Decline</button>
-          <button onClick={() => done("accepted")} style={{ background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Accept</button>
-        </div>
-        <button onClick={() => done("declined")} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 0, flexShrink: 0 }} aria-label="Close"><X size={16} /></button>
-      </div>
-    );
-  }
-
   if (current === "push") {
-    const done = (permanent = false) => {
+    const dismiss = (permanent: boolean) => {
       if (permanent) localStorage.setItem(PUSH_KEY, "dismissed");
+      setPushError("");
       advance("push");
     };
+
     const enable = async () => {
-      localStorage.setItem(PUSH_KEY, "asked");
-      advance("push");
-      const granted = await enablePushNotifications();
-      if (granted) {
-        new Notification("Treffin notifications enabled!", {
-          body: "You'll be notified about debate replies, rep changes, and trending topics.",
-          icon: `${import.meta.env.BASE_URL}treffin-mark.png`,
+      setPushBusy(true);
+      setPushError("");
+      const enabled = await enablePushNotifications();
+      setPushBusy(false);
+
+      if (enabled) {
+        localStorage.setItem(PUSH_KEY, "enabled");
+        await showLocalNotification("Treffin notifications enabled!", {
+          body: "You’ll be notified about replies, debate updates, and reputation changes.",
+          tag: "treffin-push-enabled",
+          data: { url: "/notifications" },
         });
+        advance("push");
+        return;
+      }
+
+      if (Notification.permission === "denied") {
+        localStorage.setItem(PUSH_KEY, "denied");
+        advance("push");
+      } else {
+        setPushError("Notifications could not be enabled. Check your connection and try again.");
       }
     };
+
     return (
-      <div style={{ position: "fixed", bottom: "80px", right: "16px", width: "min(320px, calc(100vw - 32px))", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 9999 }}>
+      <div role="dialog" aria-label="Enable Treffin notifications" style={{ position: "fixed", bottom: "calc(72px + env(safe-area-inset-bottom))", right: 16, width: "min(320px, calc(100vw - 32px))", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 16, padding: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 9999 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 10, background: "hsl(var(--primary)/0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Bell size={20} style={{ color: "hsl(var(--primary))" }} />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "hsl(var(--foreground))" }}>Stay in the loop</p>
-            <p style={{ margin: "4px 0 12px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.4 }}>
-              Get notified about debate replies, new rep, and trending topics.
-            </p>
+            <p style={{ margin: "4px 0 12px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.4 }}>Get notified about debate replies, new reputation, and trending topics.</p>
+            {pushError && <p role="alert" style={{ margin: "0 0 10px", fontSize: 12, color: "hsl(var(--destructive))" }}>{pushError}</p>}
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => done(true)} style={{ flex: 1, background: "none", border: "1px solid hsl(var(--border))", borderRadius: 8, padding: "7px 0", fontSize: 13, color: "hsl(var(--muted-foreground))", cursor: "pointer" }}>Not now</button>
-              <button onClick={enable} style={{ flex: 1, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 8, padding: "7px 0", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Enable</button>
+              <button disabled={pushBusy} onClick={() => dismiss(true)} style={{ flex: 1, background: "none", border: "1px solid hsl(var(--border))", borderRadius: 8, padding: "8px 0", fontSize: 13, color: "hsl(var(--muted-foreground))", cursor: "pointer" }}>Not now</button>
+              <button disabled={pushBusy} onClick={enable} style={{ flex: 1, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 13, fontWeight: 600, cursor: pushBusy ? "wait" : "pointer", opacity: pushBusy ? 0.7 : 1 }}>{pushBusy ? "Enabling…" : "Enable"}</button>
             </div>
           </div>
-          <button onClick={() => done(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 0, flexShrink: 0 }} aria-label="Close"><X size={16} /></button>
+          <button onClick={() => dismiss(false)} aria-label="Close notification prompt" style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 0, flexShrink: 0 }}><X size={16} /></button>
         </div>
       </div>
     );
   }
 
-  if (current === "install") {
-    if (!installReady) {
-      advance("install");
-      return null;
+  const dismissInstall = () => {
+    localStorage.setItem(INSTALL_DISMISSED_KEY, String(Date.now()));
+    advance("install");
+  };
+  const install = async () => {
+    if (!deferredPrompt) return;
+    await deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    setDeferredPrompt(null);
+    setInstallReady(false);
+    if (outcome === "accepted") {
+      localStorage.setItem(INSTALL_ACCEPTED_KEY, "1");
+      localStorage.removeItem(INSTALL_DISMISSED_KEY);
+    } else {
+      localStorage.setItem(INSTALL_DISMISSED_KEY, String(Date.now()));
     }
-    const done = () => {
-      localStorage.setItem(INSTALL_KEY, "1");
-      advance("install");
-    };
-    const install = async () => {
-      if (!deferredPrompt) return;
-      await deferredPrompt.prompt();
-      const { outcome } = await deferredPrompt.userChoice;
-      if (outcome === "accepted") localStorage.setItem(INSTALL_KEY, "1");
-      advance("install");
-    };
-    return (
-      <div style={{ position: "fixed", bottom: "80px", left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: "420px", background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "16px", padding: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 9999, display: "flex", gap: "12px", alignItems: "flex-start" }}>
-        <img src="/treffin-mark.png" alt="Treffin" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "hsl(var(--foreground))" }}>Add Treffin to your home screen</p>
-          <p style={{ margin: "4px 0 10px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.4 }}>
-            {installPlatform === "ios"
-              ? <><Share size={11} style={{ display: "inline", verticalAlign: "middle" }} /> Tap <strong>Share</strong> → <strong>Add to Home Screen</strong> for the full app feel.</>
-              : "Install for faster access, offline support, and a native app feel."}
-          </p>
-          {installPlatform === "android" && (
-            <button onClick={install} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              <Download size={14} /> Install App
-            </button>
-          )}
-        </div>
-        <button onClick={done} style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 0, flexShrink: 0 }} aria-label="Dismiss"><X size={18} /></button>
-      </div>
-    );
-  }
+    advance("install");
+  };
 
-  return null;
+  return (
+    <div role="dialog" aria-label="Install Treffin" style={{ position: "fixed", bottom: "calc(72px + env(safe-area-inset-bottom))", left: "50%", transform: "translateX(-50%)", width: "calc(100% - 32px)", maxWidth: 420, background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 16, padding: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 9999, display: "flex", gap: 12, alignItems: "flex-start" }}>
+      <img src={`${import.meta.env.BASE_URL}pwa-icon-192.png`} alt="" style={{ width: 44, height: 44, borderRadius: 10, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontWeight: 600, fontSize: 14, color: "hsl(var(--foreground))" }}>Add Treffin to your home screen</p>
+        <p style={{ margin: "4px 0 10px", fontSize: 12, color: "hsl(var(--muted-foreground))", lineHeight: 1.4 }}>
+          {installPlatform === "ios"
+            ? <><Share size={11} style={{ display: "inline", verticalAlign: "middle" }} /> Tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.</>
+            : "Install for faster access, offline support, and a native app feel."}
+        </p>
+        {installPlatform === "android" && (
+          <button onClick={install} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "hsl(var(--primary))", color: "hsl(var(--primary-foreground))", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            <Download size={14} /> Install App
+          </button>
+        )}
+      </div>
+      <button onClick={dismissInstall} aria-label="Dismiss install prompt" style={{ background: "none", border: "none", cursor: "pointer", color: "hsl(var(--muted-foreground))", padding: 0, flexShrink: 0 }}><X size={18} /></button>
+    </div>
+  );
 }

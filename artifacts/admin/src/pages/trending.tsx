@@ -69,30 +69,39 @@ export default function Trending() {
 
   const load = async () => {
     setLoading(true);
-    const [d, a] = await Promise.all([
-      api.get<AdminDebate[]>("/admin/debates"),
-      api.get<AdminArticle[]>("/admin/articles"),
-    ]);
-    setDebates(d);
-    setArticles(a);
-    setLoading(false);
+    try {
+      const [d, a] = await Promise.all([
+        api.get<AdminDebate[]>("/admin/debates"),
+        api.get<AdminArticle[]>("/admin/articles"),
+      ]);
+      setDebates(d);
+      setArticles(a);
+    } catch {
+      // The shared API handler displays the actionable error.
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, []);
 
   const handleToggle = async (id: number, type: ToggleType, value: boolean) => {
     const key = `${type}-${id}`;
     setBusyId(key);
-    if (type === "debate") {
-      await api.patch(`/admin/debates/${id}/trending`, { isTrending: value });
-      setDebates((ds) => ds.map((d) => d.id === id ? { ...d, isTrending: value } : d));
-    } else {
-      await api.patch(`/admin/articles/${id}/trending`, { isTrending: value });
-      setArticles((as) => as.map((a) => a.id === id ? { ...a, isTrending: value } : a));
+    try {
+      if (type === "debate") {
+        await api.patch(`/admin/debates/${id}/trending`, { isTrending: value });
+        setDebates((items) => items.map((item) => item.id === id ? { ...item, isTrending: value } : item));
+      } else {
+        await api.patch(`/admin/articles/${id}/trending`, { isTrending: value });
+        setArticles((items) => items.map((item) => item.id === id ? { ...item, isTrending: value } : item));
+      }
+    } catch {
+      // Keep the server-confirmed value when the request fails.
+    } finally {
+      setBusyId(null);
     }
-    setBusyId(null);
   };
-
   if (loading) return <div className="text-muted-foreground py-8 text-center">Loading…</div>;
 
   const trendingDebates = debates.filter((d) => d.isTrending).length;

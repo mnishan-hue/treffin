@@ -12,7 +12,7 @@ import {
   type MathBattleFullResponse,
   type MathBattleSolution,
 } from "@workspace/api-client-react";
-import { getMathUserId, getMathUsername } from "@/lib/math-auth";
+import { useSession } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -215,11 +215,13 @@ function StepCard({
   isActive: boolean;
   onJustify: () => void;
 }) {
-  const total = soundness.up + soundness.down || 1;
+  const voteCount = soundness.up + soundness.down;
+  const hasSoundnessVotes = voteCount > 0;
+  const total = voteCount || 1;
   const health = soundness.up / total;
-  const hColor = health > 0.65 ? "#10b981" : health > 0.38 ? "#f59e0b" : "#ef4444";
-  const hBg    = health > 0.65 ? "rgba(16,185,129,0.12)" : health > 0.38 ? "rgba(245,158,11,0.1)" : "rgba(239,68,68,0.1)";
-  const hBorder = health > 0.65 ? "rgba(16,185,129,0.3)" : health > 0.38 ? "rgba(245,158,11,0.3)" : "rgba(239,68,68,0.25)";
+  const hColor = !hasSoundnessVotes ? "#64748b" : health > 0.65 ? "#10b981" : health > 0.38 ? "#f59e0b" : "#ef4444";
+  const hBg = !hasSoundnessVotes ? "rgba(100,116,139,0.1)" : health > 0.65 ? "rgba(16,185,129,0.12)" : health > 0.38 ? "rgba(245,158,11,0.1)" : "rgba(239,68,68,0.1)";
+  const hBorder = !hasSoundnessVotes ? "rgba(100,116,139,0.25)" : health > 0.65 ? "rgba(16,185,129,0.3)" : health > 0.38 ? "rgba(245,158,11,0.3)" : "rgba(239,68,68,0.25)";
 
   return (
     <div
@@ -275,7 +277,7 @@ function ArgumentCard({
   const queryClient = useQueryClient();
   const [showReply, setShowReply] = useState(false);
   const [replyText, setReplyText] = useState("");
-  const viewerName = getMathUsername() ?? "Anonymous";
+
 
   const voteMut = useMutation({
     mutationFn: (vote: "up" | "down") => voteEleganceBattleArgument(problemId, arg.id, { vote }),
@@ -373,6 +375,7 @@ function ArgumentCard({
         <div className="ml-8 flex gap-2">
           <Textarea
             rows={2}
+            maxLength={4000}
             value={replyText}
             onChange={e => setReplyText(e.target.value)}
             placeholder="Write a reply…"
@@ -466,6 +469,7 @@ function JustificationPanel({
         <div className="px-4 py-4 border-t border-border/60 space-y-2.5">
           <Textarea
             rows={3}
+            maxLength={4000}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             placeholder="Is this step valid? Annotate your take…"
@@ -492,7 +496,7 @@ function JustificationPanel({
 // ── Solution card ─────────────────────────────────────────────────────────────
 function SolutionCard({
   sol, args, problemId, viewerId, queryKey,
-  activePanel, onOpenPanel, myAxisVotes, onAxisVote, rank, isLive,
+  activePanel, onOpenPanel, myAxisVotes, onAxisVote, rank, isLive, canParticipate, isPendingAxisVote,
 }: {
   sol: MathBattleSolution;
   args: MathBattleArgument[];
@@ -506,6 +510,7 @@ function SolutionCard({
   isPendingAxisVote: boolean;
   rank: number;
   isLive: boolean;
+  canParticipate: boolean;
 }) {
   const pal = palette(sol.approach);
   const steps = parseSteps(sol.body);
@@ -560,9 +565,9 @@ function SolutionCard({
               border={border}
               count={sol.votes[key as AxisKey]}
               isMine={myAxisVotes[key as AxisKey] === sol.id}
-              canVote={isLive && !!viewerId}
+              canVote={isLive && canParticipate && !!viewerId}
               onVote={() => onAxisVote(key as AxisKey, sol.id)}
-              isPending={false}
+              isPending={isPendingAxisVote}
             />
           ))}
         </div>
@@ -609,7 +614,7 @@ function SolutionCard({
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Top Discussions</p>
           <div className="space-y-2">
             {topArgs.map(a => (
-              <ArgumentCard key={a.id} arg={a} problemId={problemId} viewerId={viewerId} queryKey={queryKey} />
+              <ArgumentCard key={a.id} arg={a} problemId={problemId} viewerId={canParticipate ? viewerId : null} queryKey={queryKey} />
             ))}
           </div>
         </div>
@@ -706,7 +711,7 @@ function VerdictPanel({
       </div>
 
       {/* Conclude button (moderator only) */}
-      {viewerId && !data.battle?.verdict && !data.battle?.isEnded && (
+      {data.battle?.canConclude && !data.battle.verdict && !data.battle.isEnded && (
         <div>
           {open ? (
             <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
@@ -716,6 +721,7 @@ function VerdictPanel({
                 rows={5}
                 value={draft}
                 onChange={e => setDraft(e.target.value)}
+                maxLength={4000}
                 placeholder="e.g. The geometric approach wins for elegance — its single diagram replaces 3 pages of algebra…"
                 className="resize-none bg-muted/60 border-border"
               />
@@ -752,14 +758,15 @@ export default function MathEleganceBattle() {
   const [, navigate] = useLocation();
   const problemId = Number(id);
 
-  const viewerId = getMathUserId();
+  const { user, isLoaded: isSessionLoaded } = useSession();
+  const viewerId = user?.id ?? null;
 
-  const queryKey = ["elegance-battle-full", problemId];
+  const queryKey = ["elegance-battle-full", problemId, viewerId ?? "guest"];
 
   const { data, isLoading, isError } = useQuery({
     queryKey,
     queryFn: () => getEleganceBattleFull(problemId),
-    enabled: !!problemId,
+    enabled: !!problemId && isSessionLoaded,
     refetchInterval: 15_000,
   });
 
@@ -787,7 +794,7 @@ export default function MathEleganceBattle() {
           solutions: updatedSols
             ? old.solutions.map(s => {
                 const fresh = updatedSols.find(u => u.id === s.id);
-                return fresh ? { ...s, votes: { ...s.votes, ...fresh } } : s;
+                return fresh ? { ...s, votes: { ...s.votes, ...fresh.votes } } : s;
               })
             : old.solutions,
         };
@@ -852,6 +859,8 @@ export default function MathEleganceBattle() {
   const [solA, solB] = ranked;
   const isLive = !!(data.battle?.isLive && !data.battle?.isEnded);
   const isEnded = !!data.battle?.isEnded;
+  const canParticipate = !!data.battle?.canParticipate;
+  const participantId = canParticipate ? viewerId : null;
 
   return (
     <div className="min-h-[calc(100dvh-4rem)] bg-background text-foreground">
@@ -1005,13 +1014,13 @@ export default function MathEleganceBattle() {
               <div
                 className={cn(
                   "gap-5",
-                  data.solutions.length >= 2 ? "grid lg:grid-cols-2" : "max-w-2xl mx-auto",
-                  activePanel && "lg:pr-[400px]",
+                  data.solutions.length >= 2 ? "grid xl:grid-cols-2" : "max-w-2xl mx-auto",
+                  activePanel && "xl:pr-[400px]",
                 )}
               >
                 {/* VS divider — desktop */}
                 {data.solutions.length >= 2 && (
-                  <div className="hidden md:flex absolute left-1/2 top-20 -translate-x-1/2 z-10 pointer-events-none">
+                  <div className="hidden xl:flex absolute left-1/2 top-20 -translate-x-1/2 z-10 pointer-events-none">
                     <div className="w-10 h-10 rounded-full bg-background text-foreground border-2 border-border flex items-center justify-center text-xs font-black text-foreground/80 shadow-2xl">
                       VS
                     </div>
@@ -1037,6 +1046,7 @@ export default function MathEleganceBattle() {
                     isPendingAxisVote={axisVoteMut.isPending}
                     rank={ranked.findIndex(r => r.id === sol.id)}
                     isLive={isLive}
+                    canParticipate={canParticipate}
                   />
                 ))}
               </div>
@@ -1057,7 +1067,7 @@ export default function MathEleganceBattle() {
                     animate={{ x: 0 }}
                     exit={{ x: 400 }}
                     transition={{ type: "spring", stiffness: 320, damping: 32 }}
-                    className="fixed right-0 top-16 bottom-0 w-full sm:w-[400px] z-30 flex flex-col shadow-2xl"
+                    className="fixed right-0 top-16 bottom-[calc(env(safe-area-inset-bottom,0px)+62px)] lg:bottom-0 w-full sm:w-[400px] z-30 flex flex-col shadow-2xl"
                   >
                     <JustificationPanel
                       solutionId={activePanel.solutionId}
@@ -1066,7 +1076,7 @@ export default function MathEleganceBattle() {
                       args={data.arguments}
                       problemId={problemId}
                       onClose={() => setActivePanel(null)}
-                      viewerId={viewerId}
+                      viewerId={participantId}
                       queryKey={queryKey}
                     />
                   </motion.div>

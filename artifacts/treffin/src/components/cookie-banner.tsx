@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Cookie, X } from "lucide-react";
 
 const CONSENT_KEY = "treffin_cookie_consent";
+const CONSENT_EVENT = "treffin:cookie-consent";
 
 export function CookieBanner() {
   const [visible, setVisible] = useState(false);
@@ -16,11 +17,13 @@ export function CookieBanner() {
 
   const accept = () => {
     localStorage.setItem(CONSENT_KEY, "accepted");
+    window.dispatchEvent(new Event(CONSENT_EVENT));
     setVisible(false);
   };
 
   const decline = () => {
     localStorage.setItem(CONSENT_KEY, "declined");
+    window.dispatchEvent(new Event(CONSENT_EVENT));
     setVisible(false);
   };
 
@@ -30,18 +33,18 @@ export function CookieBanner() {
     <div
       style={{
         position: "fixed",
-        bottom: 0,
+        top: 0,
         left: 0,
         right: 0,
         background: "hsl(var(--card))",
-        borderTop: "1px solid hsl(var(--border))",
+        borderBottom: "1px solid hsl(var(--border))",
         padding: "14px 20px",
         zIndex: 9999,
         display: "flex",
         alignItems: "center",
         gap: 12,
         flexWrap: "wrap",
-        boxShadow: "0 -4px 24px rgba(0,0,0,0.15)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
       }}
     >
       <Cookie size={20} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />

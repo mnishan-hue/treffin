@@ -6,10 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * @nullable
- */
-export type MathBattleCategoriesMostRigorous = {
-  solutionId?: number;
-  votes?: number;
-} | null;
+export interface CommunityOwnershipTransferInput {
+  userId: number;
+}

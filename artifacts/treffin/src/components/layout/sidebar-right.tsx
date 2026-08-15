@@ -40,6 +40,7 @@ export function SidebarRight() {
   const isMathPage = location.startsWith("/math");
 
   const { data: trendingDebates, isLoading: trendingLoading } = useGetTrendingDebates();
+  const trendingList = React.useMemo(() => Array.isArray(trendingDebates) ? trendingDebates : [], [trendingDebates]);
   const { data: topThinkers, isLoading: thinkersLoading } = useGetTopThinkers(
     { period: "this_week" },
     {
@@ -50,6 +51,7 @@ export function SidebarRight() {
       },
     },
   );
+  const thinkerList = React.useMemo(() => Array.isArray(topThinkers) ? topThinkers : [], [topThinkers]);
 
   /* ── Math-specific sidebar ── */
   if (isMathPage) {
@@ -92,7 +94,7 @@ export function SidebarRight() {
           </div>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {trendingDebates?.slice(0, 5).map((debate, i) => (
+            {trendingList.slice(0, 5).map((debate, i) => (
               <Link key={debate.id} href={`/debates/${debate.id}`}>
                 <div className="flex gap-3 items-start group cursor-pointer px-2 py-2.5 rounded-lg hover:bg-muted/50 transition-colors -mx-2">
                   {/* Rank number */}
@@ -156,11 +158,11 @@ export function SidebarRight() {
               </div>
             ))}
           </div>
-        ) : !topThinkers?.length ? (
+        ) : !thinkerList.length ? (
           <p className="text-[11px] text-muted-foreground text-center py-4">No activity yet this week.</p>
         ) : (
           <div className="flex flex-col gap-0.5">
-            {topThinkers.slice(0, 5).map((thinker, i) => (
+            {thinkerList.slice(0, 5).map((thinker, i) => (
               <Link key={thinker.id} href={`/profile/${thinker.id}`}>
                 <div className="flex gap-2.5 items-center group cursor-pointer px-2 py-2 rounded-lg hover:bg-muted/50 transition-colors -mx-2">
                   {/* Rank medal */}
@@ -191,7 +193,7 @@ export function SidebarRight() {
 
       {/* Elite Thinkers */}
       {(() => {
-        const elites = topThinkers?.filter(t => t.reputationScore >= 1000) ?? [];
+        const elites = thinkerList.filter(t => t.reputationScore >= 1000);
         return (
           <div className="relative overflow-hidden rounded-xl border border-yellow-500/25 bg-gradient-to-br from-yellow-950/50 via-amber-950/30 to-card p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between">

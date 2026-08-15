@@ -302,6 +302,7 @@ export interface Article {
   category?: string | null;
   readTime: number;
   likes: number;
+  comments?: number;
   liked?: boolean;
   isVerified?: boolean;
   createdAt: string;
@@ -404,6 +405,17 @@ export interface Topic {
   color: string;
 }
 
+/**
+ * @nullable
+ */
+export type DailyQuestionMyVote = typeof DailyQuestionMyVote[keyof typeof DailyQuestionMyVote] | null;
+
+
+export const DailyQuestionMyVote = {
+  support: 'support',
+  against: 'against',
+} as const;
+
 export interface DailyQuestion {
   id: number;
   question: string;
@@ -412,6 +424,8 @@ export interface DailyQuestion {
   participantCount: number;
   isLive: boolean;
   imageUrl: string;
+  /** @nullable */
+  myVote: DailyQuestionMyVote;
 }
 
 export interface DailyQuestionInput {
@@ -520,6 +534,10 @@ export interface CommunityJoinRequest {
   joinedAt: string;
 }
 
+export interface CommunityOwnershipTransferInput {
+  userId: number;
+}
+
 export interface CommunityRulesInput {
   rules: string[];
 }
@@ -612,6 +630,7 @@ export interface WeeklyChallenge {
   winnerAvatar?: string | null;
   /** @nullable */
   winnerResponse?: string | null;
+  hasSubmitted: boolean;
 }
 
 export interface WeeklyChallengeInput {
@@ -1667,28 +1686,21 @@ export interface MathShowdownDetail {
   myVotes: MathShowdownMyVotes;
 }
 
-export interface MathNotification {
-  id: number;
-  userId: string;
-  type: string;
-  title: string;
-  body: string;
-  /** @nullable */
-  targetType?: string | null;
-  /** @nullable */
-  targetId?: number | null;
-  /** @nullable */
-  fromUserId?: string | null;
-  /** @nullable */
-  fromUserName?: string | null;
-  isRead: boolean;
-  createdAt: string;
-}
-
 export interface MathBattleStepSoundness {
   up: number;
   down: number;
 }
+
+/**
+ * @nullable
+ */
+export type MathBattleArgumentMyVote = typeof MathBattleArgumentMyVote[keyof typeof MathBattleArgumentMyVote] | null;
+
+
+export const MathBattleArgumentMyVote = {
+  up: 'up',
+  down: 'down',
+} as const;
 
 export interface MathBattleArgument {
   id: number;
@@ -1699,20 +1711,21 @@ export interface MathBattleArgument {
   userId: string;
   userName: string;
   content: string;
+  createdAt?: string;
   upvotes: number;
   downvotes: number;
   isPinned: boolean;
   /** @nullable */
-  myVote: string | null;
+  myVote: MathBattleArgumentMyVote;
   replies: MathBattleArgument[];
 }
 
-export type MathBattleSolutionVotes = {
+export interface MathBattleSolutionVotes {
   elegant: number;
   clear: number;
   rigorous: number;
   efficient: number;
-};
+}
 
 export interface MathBattleSolution {
   id: number;
@@ -1728,47 +1741,17 @@ export interface MathBattleSolution {
   solvingTime?: number | null;
 }
 
-/**
- * @nullable
- */
-export type MathBattleCategoriesMostElegant = {
+export interface MathBattleCategoryWinner {
   solutionId?: number;
   votes?: number;
-} | null;
-
-/**
- * @nullable
- */
-export type MathBattleCategoriesMostRigorous = {
-  solutionId?: number;
-  votes?: number;
-} | null;
-
-/**
- * @nullable
- */
-export type MathBattleCategoriesClearest = {
-  solutionId?: number;
-  votes?: number;
-} | null;
-
-/**
- * @nullable
- */
-export type MathBattleCategoriesMostEfficient = {
-  solutionId?: number;
   stepCount?: number;
-} | null;
+}
 
 export interface MathBattleCategories {
-  /** @nullable */
-  mostElegant?: MathBattleCategoriesMostElegant;
-  /** @nullable */
-  mostRigorous?: MathBattleCategoriesMostRigorous;
-  /** @nullable */
-  clearest?: MathBattleCategoriesClearest;
-  /** @nullable */
-  mostEfficient?: MathBattleCategoriesMostEfficient;
+  mostElegant?: MathBattleCategoryWinner | null;
+  mostRigorous?: MathBattleCategoryWinner | null;
+  clearest?: MathBattleCategoryWinner | null;
+  mostEfficient?: MathBattleCategoryWinner | null;
 }
 
 export interface MathBattleInfo {
@@ -1779,18 +1762,9 @@ export interface MathBattleInfo {
   verdict?: string | null;
   /** @nullable */
   verdictAuthor?: string | null;
+  canParticipate: boolean;
+  canConclude: boolean;
 }
-
-export type MathBattleFullResponseMyAxisVotes = {
-  /** @nullable */
-  elegant?: number | null;
-  /** @nullable */
-  clear?: number | null;
-  /** @nullable */
-  rigorous?: number | null;
-  /** @nullable */
-  efficient?: number | null;
-};
 
 export interface MathBattleFullResponse {
   problemId: number;
@@ -1798,13 +1772,18 @@ export interface MathBattleFullResponse {
   battle?: MathBattleInfo | null;
   solutions: MathBattleSolution[];
   arguments: MathBattleArgument[];
-  myAxisVotes: MathBattleFullResponseMyAxisVotes;
+  myAxisVotes: MathShowdownMyVotes;
   categories: MathBattleCategories;
 }
 
 export interface PostEleganceBattleArgumentInput {
   solutionId: number;
+  /** @minimum 0 */
   stepIndex: number;
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
   content: string;
   parentId?: number;
 }
@@ -1821,15 +1800,48 @@ export interface VoteEleganceBattleArgumentInput {
   vote: VoteEleganceBattleArgumentInputVote;
 }
 
+/**
+ * @nullable
+ */
+export type EleganceBattleArgumentVoteResultMyVote = typeof EleganceBattleArgumentVoteResultMyVote[keyof typeof EleganceBattleArgumentVoteResultMyVote] | null;
+
+
+export const EleganceBattleArgumentVoteResultMyVote = {
+  up: 'up',
+  down: 'down',
+} as const;
+
 export interface EleganceBattleArgumentVoteResult {
   upvotes: number;
   downvotes: number;
   /** @nullable */
-  myVote: string | null;
+  myVote: EleganceBattleArgumentVoteResultMyVote;
 }
 
 export interface ConcludeEleganceBattleInput {
+  /**
+     * @minLength 1
+     * @maxLength 4000
+     */
   verdict: string;
+}
+
+export interface MathNotification {
+  id: number;
+  userId: string;
+  type: string;
+  title: string;
+  body: string;
+  /** @nullable */
+  targetType?: string | null;
+  /** @nullable */
+  targetId?: number | null;
+  /** @nullable */
+  fromUserId?: string | null;
+  /** @nullable */
+  fromUserName?: string | null;
+  isRead: boolean;
+  createdAt: string;
 }
 
 export type GlobalSearchParams = {
@@ -1890,6 +1902,11 @@ export const GetTopThinkersPeriod = {
 
 export type UpdateUserInterests200 = {
   ok: boolean;
+};
+
+export type TransferCommunityOwnership200 = {
+  ok: boolean;
+  creatorId: number;
 };
 
 export type ApproveCommunityJoinRequest200 = {

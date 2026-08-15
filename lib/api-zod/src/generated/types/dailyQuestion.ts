@@ -5,6 +5,7 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DailyQuestionMyVote } from './dailyQuestionMyVote';
 
 export interface DailyQuestion {
   id: number;
@@ -14,4 +15,6 @@ export interface DailyQuestion {
   participantCount: number;
   isLive: boolean;
   imageUrl: string;
+  /** @nullable */
+  myVote: DailyQuestionMyVote;
 }
