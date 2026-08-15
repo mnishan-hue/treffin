@@ -41,7 +41,7 @@ import { DesmosEmbed } from "@/components/math/desmos-embed";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { BookmarkPlus, BookmarkCheck, MessageSquarePlus, ChevronDown, ChevronUp, Swords, Lightbulb, Star, Flag, Pencil, Trash2, Check, X, Plus, Trophy, Zap, Timer, CheckCircle2 } from "lucide-react";
-import { getApiUrl } from "@/lib/api-url";
+import { authenticatedFetch } from "@/lib/api-url";
 
 function DifficultyBadge({ difficulty }: { difficulty: string }) {
   const colors: Record<string, string> = {
@@ -894,12 +894,15 @@ function MathDebatesSidebar({
         ) : eleganceBattles.length > 0 ? (
           <div className="divide-y divide-border/40">
             {eleganceBattles.slice(0, 7).map((d, i) => {
-              const isLive = d.endsAt ? new Date(d.endsAt) > new Date() : false;
+              const battle = d as typeof d & { winnerStatus?: string | null; endedAt?: string | null };
+              const isLive = battle.isLive !== false
+                && !battle.endedAt
+                && (battle.winnerStatus ?? "undecided") === "undecided";
               const displayTitle = d.title.startsWith("Elegance Battle:")
                 ? d.title.slice("Elegance Battle:".length).trim()
                 : d.title;
               const href = d.mathProblemId
-                ? `/math/problem/${d.mathProblemId}/showdown`
+                ? `/math/problem/${d.mathProblemId}/elegance-battle`
                 : `/debates/${d.id}`;
               return (
                 <Link key={d.id} href={href}>
@@ -912,7 +915,7 @@ function MathDebatesSidebar({
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground">
-                        {(d.participantCount ?? 0).toLocaleString()} voters
+                        {isLive ? "Voting open" : "Concluded"}
                       </span>
                       {isLive && (
                         <span
@@ -1100,7 +1103,7 @@ function SolutionCard({ sol, problemId, index, problemOwnerId }: { sol: MathSolu
 
   const acceptSolution = useMutation({
     mutationFn: async () => {
-      const res = await fetch(getApiUrl(`/api/math/solutions/${sol.id}/accept`), {
+      const res = await authenticatedFetch(`/api/math/solutions/${sol.id}/accept`, {
         method: "PATCH",
         credentials: "include",
       });

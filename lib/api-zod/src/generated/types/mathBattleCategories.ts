@@ -5,18 +5,11 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
-import type { MathBattleCategoriesClearest } from './mathBattleCategoriesClearest';
-import type { MathBattleCategoriesMostEfficient } from './mathBattleCategoriesMostEfficient';
-import type { MathBattleCategoriesMostElegant } from './mathBattleCategoriesMostElegant';
-import type { MathBattleCategoriesMostRigorous } from './mathBattleCategoriesMostRigorous';
+import type { MathBattleCategoryWinner } from './mathBattleCategoryWinner';
 
 export interface MathBattleCategories {
-  /** @nullable */
-  mostElegant?: MathBattleCategoriesMostElegant;
-  /** @nullable */
-  mostRigorous?: MathBattleCategoriesMostRigorous;
-  /** @nullable */
-  clearest?: MathBattleCategoriesClearest;
-  /** @nullable */
-  mostEfficient?: MathBattleCategoriesMostEfficient;
+  mostElegant?: MathBattleCategoryWinner | null;
+  mostRigorous?: MathBattleCategoryWinner | null;
+  clearest?: MathBattleCategoryWinner | null;
+  mostEfficient?: MathBattleCategoryWinner | null;
 }

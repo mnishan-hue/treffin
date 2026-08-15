@@ -3,6 +3,7 @@ import { logger } from "./lib/logger";
 import { db } from "@workspace/db";
 import { debatesTable, commentsTable } from "@workspace/db";
 import { eq, and, lt, gt, sql } from "drizzle-orm";
+import { loadEliteThreshold } from "./routes/reputation";
 
 const rawPort = process.env["PORT"];
 
@@ -16,6 +17,14 @@ const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
+}
+
+try {
+  const threshold = await loadEliteThreshold();
+  logger.info({ threshold }, "Loaded Elite Thinker threshold");
+} catch (err) {
+  // Public traffic may continue while an unapplied settings migration is repaired.
+  logger.warn({ err }, "Could not load persisted Elite Thinker threshold; using the default");
 }
 
 app.listen(port, (err) => {

@@ -24,6 +24,7 @@ export interface Article {
   category?: string | null;
   readTime: number;
   likes: number;
+  comments?: number;
   liked?: boolean;
   isVerified?: boolean;
   createdAt: string;

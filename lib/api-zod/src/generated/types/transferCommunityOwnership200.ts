@@ -6,10 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * @nullable
- */
-export type MathBattleCategoriesClearest = {
-  solutionId?: number;
-  votes?: number;
-} | null;
+export type TransferCommunityOwnership200 = {
+  ok: boolean;
+  creatorId: number;
+};

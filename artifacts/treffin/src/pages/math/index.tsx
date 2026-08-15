@@ -12,7 +12,7 @@ import {
   useGetDebates,
   type Debate,
 } from "@workspace/api-client-react";
-import { getMathUserId } from "@/lib/math-auth";
+import { useSession } from "@/lib/auth-client";
 import { MathText } from "@/components/math/math-renderer";
 import { EurekaReactions } from "@/components/math/eureka-reactions";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -98,132 +98,83 @@ const MEDAL_STYLE = [
   { bg: "rgba(205,127,50,0.18)", border: "rgba(205,127,50,0.45)", color: "#cd9563", medal: "🥉" },
 ];
 
-function BattleCard({ debate, rank }: { debate: Debate; rank: number }) {
-  const d = debate as Debate & { mathProblemId?: number | null };
-  const showdownHref = d.mathProblemId ? `/math/problem/${d.mathProblemId}/showdown` : `/debates/${debate.id}`;
-  const displayTitle = debate.title.startsWith("Elegance Battle:") ? debate.title.slice("Elegance Battle:".length).trim() : debate.title;
-  const totalVoters = debate.participantCount ?? 0;
-  const supportPct = debate.supportPercent ?? 0;
-  const againstPct = debate.againstPercent ?? 0;
-  const medal = MEDAL_STYLE[rank] ?? MEDAL_STYLE[2]!;
-  const isEnded = !debate.isLive && totalVoters > 0;
+function isMathBattleEnded(debate: Debate): boolean {
+  const battle = debate as Debate & { winnerStatus?: string | null; endedAt?: string | null };
+  return Boolean(battle.endedAt) || (battle.winnerStatus != null && battle.winnerStatus !== "undecided");
+}
 
-  // rank-based accent colors
-  const accent = rank === 0 ? { border: "rgba(251,191,36,0.4)", glow: "rgba(251,191,36,0.08)", top: "linear-gradient(to right,#f59e0b,#fbbf24,#f59e0b)" }
-    : rank === 1 ? { border: "rgba(148,163,184,0.3)", glow: "rgba(148,163,184,0.05)", top: "linear-gradient(to right,#94a3b8,#cbd5e1,#94a3b8)" }
-    : { border: "rgba(139,92,246,0.3)", glow: "rgba(139,92,246,0.06)", top: "linear-gradient(to right,#8b5cf6,#a78bfa,#8b5cf6)" };
+function BattleCard({ debate, rank }: { debate: Debate; rank: number }) {
+  const battle = debate as Debate & { mathProblemId?: number | null; winnerStatus?: string | null; endedAt?: string | null };
+  const href = battle.mathProblemId ? `/math/problem/${battle.mathProblemId}/elegance-battle` : `/debates/${debate.id}`;
+  const displayTitle = debate.title.startsWith("Elegance Battle:") ? debate.title.slice("Elegance Battle:".length).trim() : debate.title;
+  const ended = isMathBattleEnded(debate);
+  const live = debate.isLive && !ended;
+  const medal = MEDAL_STYLE[rank] ?? MEDAL_STYLE[2]!;
+  const accent = rank === 0
+    ? { border: "rgba(251,191,36,0.4)", glow: "rgba(251,191,36,0.2)", top: "linear-gradient(to right,#f59e0b,#fbbf24,#f59e0b)" }
+    : rank === 1
+      ? { border: "rgba(148,163,184,0.3)", glow: "rgba(148,163,184,0.14)", top: "linear-gradient(to right,#94a3b8,#cbd5e1,#94a3b8)" }
+      : { border: "rgba(139,92,246,0.3)", glow: "rgba(139,92,246,0.18)", top: "linear-gradient(to right,#8b5cf6,#a78bfa,#8b5cf6)" };
 
   return (
-    <Link href={showdownHref}>
+    <Link href={href}>
       <div
         style={{
-          position: "relative", height: "100%",
-          background: `var(--color-card)`,
-          border: `1px solid ${accent.border}`,
-          borderRadius: 18, overflow: "hidden",
-          cursor: "pointer", transition: "all 0.2s",
-          display: "flex", flexDirection: "column",
-          opacity: isEnded ? 0.82 : 1,
+          position: "relative", height: "100%", minWidth: 0,
+          background: "var(--color-card)", border: `1px solid ${accent.border}`,
+          borderRadius: 18, overflow: "hidden", cursor: "pointer",
+          transition: "all 0.2s", display: "flex", flexDirection: "column",
+          opacity: ended ? 0.82 : 1,
         }}
-        onMouseEnter={e => {
-          (e.currentTarget as HTMLDivElement).style.transform = "translateY(-3px)";
-          (e.currentTarget as HTMLDivElement).style.boxShadow = `0 12px 36px ${accent.glow.replace("0.06","0.18").replace("0.05","0.14").replace("0.08","0.2")}`;
-          (e.currentTarget as HTMLDivElement).style.opacity = "1";
+        onMouseEnter={(event) => {
+          event.currentTarget.style.transform = "translateY(-3px)";
+          event.currentTarget.style.boxShadow = `0 12px 36px ${accent.glow}`;
+          event.currentTarget.style.opacity = "1";
         }}
-        onMouseLeave={e => {
-          (e.currentTarget as HTMLDivElement).style.transform = "translateY(0)";
-          (e.currentTarget as HTMLDivElement).style.boxShadow = "none";
-          (e.currentTarget as HTMLDivElement).style.opacity = isEnded ? "0.82" : "1";
+        onMouseLeave={(event) => {
+          event.currentTarget.style.transform = "translateY(0)";
+          event.currentTarget.style.boxShadow = "none";
+          event.currentTarget.style.opacity = ended ? "0.82" : "1";
         }}
       >
-        {/* Top accent bar */}
         <div style={{ height: 3, background: accent.top, flexShrink: 0 }} />
-
-        <div style={{ padding: "14px 16px 15px", display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-          {/* Rank pill + live badge */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ padding: "14px 16px 15px", display: "flex", flexDirection: "column", gap: 10, flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
             <div style={{
-              display: "inline-flex", alignItems: "center", gap: 5,
-              padding: "3px 9px", borderRadius: 100,
-              background: medal.bg, border: `1px solid ${medal.border}`,
-              fontSize: "0.65rem", fontWeight: 800, color: medal.color,
+              display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 100,
+              background: medal.bg, border: `1px solid ${medal.border}`, fontSize: "0.65rem", fontWeight: 800, color: medal.color,
             }}>
-              {medal.medal} #{rank + 1} Trending
+              {medal.medal} Battle #{rank + 1}
             </div>
-            {debate.isLive ? (
-              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: "0.62rem", fontWeight: 800, color: "#22c55e", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#22c55e", display: "inline-block", animation: "liveBlink 1.4s ease-in-out infinite" }} />
-                Live
-              </span>
-            ) : isEnded ? (
-              <span style={{ fontSize: "0.62rem", fontWeight: 700, color: "#94a3b8", letterSpacing: "0.06em", textTransform: "uppercase" }}>Concluded</span>
-            ) : null}
+            <span style={{ fontSize: "0.62rem", fontWeight: 800, color: live ? "#22c55e" : "#94a3b8", letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+              {live ? "● Live" : ended ? "Concluded" : "Open"}
+            </span>
           </div>
-
-          {/* Title */}
           <p style={{
-            fontSize: "0.95rem", fontWeight: 700, color: "var(--color-foreground)",
-            margin: 0, lineHeight: 1.45,
-            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
-          }}>
-            {displayTitle}
-          </p>
-
-          {/* Axis pills */}
+            fontSize: "0.95rem", fontWeight: 700, color: "var(--color-foreground)", margin: 0, lineHeight: 1.45,
+            overflowWrap: "anywhere", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
+          }}>{displayTitle}</p>
           <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
             {[["💎","Elegant"],["🛡","Rigorous"],["👁","Clear"],["⚡","Efficient"]].map(([icon, label]) => (
               <span key={label} style={{
-                fontSize: "0.62rem", fontWeight: 700,
-                background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)",
-                borderRadius: 100, padding: "2px 8px", color: "var(--color-muted-foreground)",
-                display: "flex", alignItems: "center", gap: 3,
-              }}>
-                {icon} {label}
-              </span>
+                fontSize: "0.62rem", fontWeight: 700, background: "var(--color-secondary)", border: "1px solid var(--color-border)",
+                borderRadius: 100, padding: "2px 8px", color: "var(--color-muted-foreground)", display: "flex", alignItems: "center", gap: 3,
+              }}>{icon} {label}</span>
             ))}
           </div>
-
-          {/* Vote bar */}
-          <div style={{ marginTop: "auto" }}>
-            {totalVoters > 0 ? (
-              <>
-                <div style={{ height: 4, borderRadius: 4, background: "rgba(255,255,255,0.07)", overflow: "hidden", display: "flex", marginBottom: 5 }}>
-                  <div style={{ width: `${supportPct}%`, background: isEnded ? "#6b7280" : "#a78bfa", transition: "width 0.6s ease", borderRadius: "4px 0 0 4px" }} />
-                  <div style={{ width: `${againstPct}%`, background: isEnded ? "#4b5563" : "#60a5fa", transition: "width 0.6s ease" }} />
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "0.68rem", color: "var(--color-muted-foreground)", display: "flex", alignItems: "center", gap: 4 }}>
-                    <Users style={{ width: 10, height: 10 }} />
-                    {totalVoters} voted
-                  </span>
-                  <span style={{
-                    padding: "4px 12px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 800,
-                    background: isEnded ? "rgba(148,163,184,0.1)" : "rgba(139,92,246,0.15)",
-                    border: `1px solid ${isEnded ? "rgba(148,163,184,0.25)" : "rgba(139,92,246,0.35)"}`,
-                    color: isEnded ? "#94a3b8" : "#c4b5fd",
-                  }}>
-                    {isEnded ? "View Results →" : "⚔ Battle"}
-                  </span>
-                </div>
-              </>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: "0.68rem", color: "var(--color-muted-foreground)" }}>No votes yet</span>
-                <span style={{
-                  padding: "4px 12px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 800,
-                  background: "rgba(139,92,246,0.15)", border: "1px solid rgba(139,92,246,0.35)", color: "#c4b5fd",
-                }}>
-                  ⚔ Battle
-                </span>
-              </div>
-            )}
+          <div style={{ marginTop: "auto", display: "flex", justifyContent: "flex-end" }}>
+            <span style={{
+              padding: "5px 12px", borderRadius: 8, fontSize: "0.72rem", fontWeight: 800,
+              background: ended ? "rgba(148,163,184,0.1)" : "rgba(139,92,246,0.15)",
+              border: `1px solid ${ended ? "rgba(148,163,184,0.25)" : "rgba(139,92,246,0.35)"}`,
+              color: ended ? "#94a3b8" : "#c4b5fd",
+            }}>{ended ? "View results →" : "Enter battle →"}</span>
           </div>
         </div>
       </div>
     </Link>
   );
 }
-
 function TopElegantBattles() {
   const { data: allDebates, isLoading } = useGetDebates();
   const [showArchive, setShowArchive] = useState(false);
@@ -235,13 +186,13 @@ function TopElegantBattles() {
 
   // Separate live/pending from concluded
   const liveBattles = [...mathDebates]
-    .filter(d => d.isLive || (d.participantCount ?? 0) === 0)
-    .sort((a, b) => (b.participantCount ?? 0) - (a.participantCount ?? 0))
+    .filter(d => !isMathBattleEnded(d))
+    .sort((a, b) => b.id - a.id)
     .slice(0, 3);
 
   const concludedBattles = [...mathDebates]
-    .filter(d => !d.isLive && (d.participantCount ?? 0) > 0)
-    .sort((a, b) => (b.participantCount ?? 0) - (a.participantCount ?? 0));
+    .filter(d => isMathBattleEnded(d))
+    .sort((a, b) => b.id - a.id);
 
   const topBattles = liveBattles.length > 0 ? liveBattles : concludedBattles.slice(0, 3);
 
@@ -284,7 +235,7 @@ function TopElegantBattles() {
               ⚔ Elegant Battles
             </div>
             <div style={{ fontSize: "0.72rem", color: "var(--color-muted-foreground)" }}>
-              {liveBattles.length > 0 ? "Most engaging solution showdowns right now" : "Past solution showdowns"}
+              {liveBattles.length > 0 ? "Active solution showdowns" : "Past solution showdowns"}
             </div>
           </div>
         </div>
@@ -335,7 +286,8 @@ export default function MathHub() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [now, setNow] = useState(Date.now());
-  const userId = getMathUserId();
+  const { user } = useSession();
+  const userId = user?.id ?? null;
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 400);
@@ -359,7 +311,7 @@ export default function MathHub() {
   };
 
   const { data: stats }       = useGetMathStats({ query: { queryKey: getGetMathStatsQueryKey() } });
-  const { data: problems, isLoading: probLoading } = useListMathProblems(
+  const { data: problems, isLoading: probLoading, isError: problemsError, refetch: refetchProblems } = useListMathProblems(
     apiParams,
     { query: { queryKey: getListMathProblemsQueryKey(apiParams) } }
   );
@@ -547,11 +499,11 @@ export default function MathHub() {
               </div>
 
               <div className="math-hero-ctas">
-                <Link href="/math">
+                <a href="#math-problems">
                   <button style={{ padding: "11px 26px", borderRadius: 11, fontWeight: 800, fontSize: "0.97rem", background: "linear-gradient(135deg,#6366f1,#3b82f6)", color: "white", border: "none", cursor: "pointer", boxShadow: "0 6px 24px rgba(99,102,241,0.4)" }}>
                     Explore Problems →
                   </button>
-                </Link>
+                </a>
                 <Link href="/math/contests">
                   <button style={{ padding: "11px 20px", borderRadius: 11, fontWeight: 600, fontSize: "0.94rem", background: "var(--color-secondary)", border: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", cursor: "pointer" }}>
                     Join a Contest
@@ -745,7 +697,7 @@ export default function MathHub() {
       </div>
 
       {/* ── Main content: full-width problem feed ─────────────── */}
-      <div style={{ maxWidth: 1120, margin: "0 auto", padding: "22px 16px 56px" }}>
+      <div id="math-problems" style={{ maxWidth: 1120, margin: "0 auto", padding: "22px 16px 56px", scrollMarginTop: 72 }}>
 
         {/* ── Problem feed ─────────────────────────── */}
         <div>
@@ -802,9 +754,9 @@ export default function MathHub() {
               ))}
             </div>
 
-            <Link href="/math" style={{ marginLeft: "auto" }} className="math-sort-all-link">
+            <a href="#math-problems" style={{ marginLeft: "auto" }} className="math-sort-all-link">
               <span style={{ fontSize: "0.83rem", color: "hsl(231 89% 65%)", fontWeight: 600 }}>All problems →</span>
-            </Link>
+            </a>
           </div>
 
           {/* Problem rows */}
@@ -813,6 +765,17 @@ export default function MathHub() {
               {Array.from({ length: 5 }).map((_, i) => (
                 <Skeleton key={i} className="h-28 w-full rounded-2xl" />
               ))}
+            </div>
+          ) : problemsError ? (
+            <div role="alert" style={{
+              textAlign: "center", padding: "48px 24px", background: "var(--color-card)",
+              border: "1px solid var(--color-border)", borderRadius: 20,
+            }}>
+              <p style={{ fontWeight: 700, color: "var(--color-foreground)", marginBottom: 6 }}>Could not load mathematics problems</p>
+              <p style={{ fontSize: "0.82rem", color: "var(--color-muted-foreground)", marginBottom: 16 }}>Check your connection and try again.</p>
+              <button onClick={() => refetchProblems()} style={{ padding: "8px 18px", borderRadius: 9, border: "1px solid var(--color-border)", background: "var(--color-secondary)", color: "var(--color-foreground)", cursor: "pointer" }}>
+                Try again
+              </button>
             </div>
           ) : displayedProblems.length === 0 ? (
             <div style={{
@@ -993,11 +956,11 @@ export default function MathHub() {
               + Post a Problem
             </button>
           </Link>
-          <Link href="/math">
+          <a href="#math-problems">
             <button style={{ padding: "9px 20px", borderRadius: 10, fontSize: "0.8rem", fontWeight: 600, background: "transparent", border: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", cursor: "pointer" }}>
               Browse All Problems →
             </button>
-          </Link>
+          </a>
         </div>
       </div>
     </div>

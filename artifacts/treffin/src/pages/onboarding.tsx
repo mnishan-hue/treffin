@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useLocation, Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import { getApiUrl } from "@/lib/api-url";
+import { getToken } from "@/lib/auth-client";
 import { useGetDebates } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import {
@@ -1094,9 +1095,14 @@ export default function Onboarding() {
 
     if (name.trim()) {
       try {
+        const token = await getToken();
         await fetch(getApiUrl("/api/users/me"), {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
           body: JSON.stringify({ name: name.trim() }),
         });
       } catch {}

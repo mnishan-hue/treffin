@@ -25,6 +25,12 @@ if (!authSecret || authSecret.length < 32) {
 const googleClientId = process.env.GOOGLE_CLIENT_ID;
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
 const googleOAuthEnabled = Boolean(googleClientId && googleClientSecret);
+if (Boolean(googleClientId) !== Boolean(googleClientSecret)) {
+  throw new Error("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured together");
+}
+if (process.env.NODE_ENV === "production" && (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL)) {
+  throw new Error("RESEND_API_KEY and RESEND_FROM_EMAIL must be configured for production authentication emails");
+}
 
 /**
  * Merge the explicit auth/CORS allowlists with the canonical frontend URLs.

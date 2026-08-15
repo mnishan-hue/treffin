@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { jitProvisionUser } from "../lib/jit-provision";
-import { battleAcceptsInteraction } from "../lib/security-policy";
+import { battleAcceptsInteraction, mathBattlePermissions, normalizeMathBattleText, validMathBattleStep } from "../lib/security-policy";
 import {
   mathCategoriesTable,
   mathProblemsTable,
@@ -33,6 +33,7 @@ import {
   or,
   ilike,
   inArray,
+  notInArray,
   notExists,
   isNull,
 } from "drizzle-orm";
@@ -630,22 +631,18 @@ router.post("/math/problems/:id/rate-difficulty", async (req, res) => {
 router.get("/math/problems/:id/elegance-battle", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
 
     const [existing] = await db
       .select({ id: debatesTable.id, isLive: debatesTable.isLive, winnerStatus: debatesTable.winnerStatus, endedAt: debatesTable.endedAt })
       .from(debatesTable)
-      .where(eq(debatesTable.mathProblemId, id))
-      .orderBy(asc(debatesTable.createdAt))
+      .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+      .orderBy(desc(debatesTable.createdAt))
       .limit(1);
 
     if (!existing) { res.json(null); return; }
-
-    res.json({
-      debateId: existing.id,
-      isLive: existing.isLive,
-      isEnded: !!existing.endedAt || existing.winnerStatus === "admin_decided" || existing.winnerStatus === "creator_declared",
-    });
+    const isEnded = !battleAcceptsInteraction(existing);
+    res.json({ debateId: existing.id, isLive: existing.isLive && !isEnded, isEnded });
   } catch (err) {
     req.log.error({ err }, "getEleganceBattle failed");
     res.status(500).json({ error: "Internal server error" });
@@ -658,109 +655,106 @@ router.get("/math/problems/:id/elegance-battle", async (req, res) => {
 router.post("/math/problems/:id/elegance-debate", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
 
     const userId = req.betterAuthSession?.user?.id ?? null;
     if (!userId) { res.status(401).json({ error: "Sign in required to start a debate" }); return; }
-    await jitProvisionUser(req.betterAuthSession?.user ?? null);
-
-    // ── Deduplicate: one battle per problem ──────────────────────────────────
-    const [existing] = await db
-      .select({ id: debatesTable.id })
-      .from(debatesTable)
-      .where(eq(debatesTable.mathProblemId, id))
-      .orderBy(asc(debatesTable.createdAt))
-      .limit(1);
-
-    if (existing) {
-      res.status(200).json({ debateId: existing.id, existed: true });
-      return;
-    }
-
-    const [problem] = await db
-      .select()
-      .from(mathProblemsTable)
-      .where(eq(mathProblemsTable.id, id));
-    if (!problem) { res.status(404).json({ error: "Problem not found" }); return; }
-
-    const solutions = await db
-      .select()
-      .from(mathSolutionsTable)
-      .where(eq(mathSolutionsTable.problemId, id))
-      .orderBy(desc(mathSolutionsTable.qualityScore), asc(mathSolutionsTable.createdAt))
-      .limit(6);
-
-    if (solutions.length < 2) {
-      res.status(400).json({ error: "At least 2 solutions are needed to start an elegance debate" });
-      return;
-    }
-
-    // Snapshot the top 2 solutions at creation time so the description never drifts
-    const sol1 = solutions[0]!;
-    const sol2 = solutions[1]!;
-    const shortTitle = problem.title.length > 60 ? problem.title.slice(0, 60) + "…" : problem.title;
-    const title = `Elegance Battle: ${shortTitle}`;
-    const description = [
-      `Which solution approach is more mathematically elegant?`,
-      ``,
-      `**Approach A — ${sol1.approach}** (by ${sol1.userName}):`,
-      sol1.body.length > 350 ? sol1.body.slice(0, 350) + "…" : sol1.body,
-      ``,
-      `**Approach B — ${sol2.approach}** (by ${sol2.userName}):`,
-      sol2.body.length > 350 ? sol2.body.slice(0, 350) + "…" : sol2.body,
-    ].join("\n");
+    const provisioned = await jitProvisionUser(req.betterAuthSession?.user ?? null);
+    if (!provisioned) { res.status(503).json({ error: "Could not create user profile" }); return; }
 
     const { creatorIsModerator, winnerAuthority } = (req.body ?? {}) as {
       creatorIsModerator?: boolean; winnerAuthority?: "creator" | "admin";
     };
+    const moderator = creatorIsModerator === true;
+    const authority = moderator && winnerAuthority === "creator" ? "creator" : "admin";
 
-    const [debate] = await db
-      .insert(debatesTable)
-      .values({
-        title,
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(41, ${id})`);
+      const [existing] = await tx
+        .select({ id: debatesTable.id })
+        .from(debatesTable)
+        .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+        .orderBy(desc(debatesTable.createdAt))
+        .limit(1);
+      if (existing) return { kind: "existing" as const, debateId: existing.id };
+
+      const [problem] = await tx.select().from(mathProblemsTable).where(eq(mathProblemsTable.id, id));
+      if (!problem) return { kind: "missing" as const };
+
+      const solutions = await tx
+        .select()
+        .from(mathSolutionsTable)
+        .where(eq(mathSolutionsTable.problemId, id))
+        .orderBy(desc(mathSolutionsTable.qualityScore), asc(mathSolutionsTable.createdAt))
+        .limit(6);
+      if (solutions.length < 2) return { kind: "insufficient" as const };
+
+      const sol1 = solutions[0]!;
+      const sol2 = solutions[1]!;
+      const shortTitle = problem.title.length > 60 ? `${problem.title.slice(0, 60)}…` : problem.title;
+      const description = [
+        "Which solution approach is more mathematically elegant?",
+        "",
+        `**Approach A — ${sol1.approach}** (by ${sol1.userName}):`,
+        sol1.body.length > 350 ? `${sol1.body.slice(0, 350)}…` : sol1.body,
+        "",
+        `**Approach B — ${sol2.approach}** (by ${sol2.userName}):`,
+        sol2.body.length > 350 ? `${sol2.body.slice(0, 350)}…` : sol2.body,
+      ].join("\n");
+
+      const [debate] = await tx.insert(debatesTable).values({
+        title: `Elegance Battle: ${shortTitle}`,
         description,
         category: "Mathematics",
         creatorUserId: userId,
-        isLive: false,
+        isLive: true,
         mathProblemId: id,
-        creatorIsModerator: !!creatorIsModerator,
-        winnerAuthority: winnerAuthority === "admin" ? "admin" : "creator",
-      })
-      .returning();
+        creatorIsModerator: moderator,
+        winnerAuthority: authority,
+      }).returning();
+      if (!debate) throw new Error("Failed to create elegance battle");
+      return { kind: "created" as const, debateId: debate.id, shortTitle, solutions };
+    });
 
-    if (!debate) { res.status(500).json({ error: "Failed to create debate" }); return; }
+    if (result.kind === "existing") { res.status(200).json({ debateId: result.debateId, existed: true }); return; }
+    if (result.kind === "missing") { res.status(404).json({ error: "Problem not found" }); return; }
+    if (result.kind === "insufficient") {
+      res.status(400).json({ error: "At least 2 solutions are needed to start an elegance debate" }); return;
+    }
 
-    // ── Notify all solution authors that a battle has started ────────────────
     try {
-      const uniqueAuthors = new Map<string, number>();
-      for (const sol of solutions) {
-        if (sol.userId && sol.userId !== userId) {
-          uniqueAuthors.set(sol.userId, sol.id);
-        }
-      }
-      for (const [authorId] of uniqueAuthors) {
+      const uniqueAuthors = new Set(
+        result.solutions.map((solution) => solution.userId).filter((authorId) => authorId && authorId !== userId),
+      );
+      for (const authorId of uniqueAuthors) {
         await db.insert(mathNotificationsTable).values({
           userId: authorId,
           type: "elegance_battle_started",
           targetType: "debate",
-          targetId: debate.id,
+          targetId: result.debateId,
           title: "Elegance Battle started ⚔",
-          body: `An Elegance Battle has started for "${shortTitle}" — your solution is in the ring! ⚔`,
+          body: `An Elegance Battle has started for "${result.shortTitle}" — your solution is in the ring! ⚔`,
         }).onConflictDoNothing();
         try {
-          await db.insert(notificationsTable).values({ userId: authorId, type: "math_event", title: "Elegance Battle started ⚔", body: `An Elegance Battle has started for "${shortTitle}" — your solution is in the ring!`, actorName: "Math", actorInitials: "M" });
+          await db.insert(notificationsTable).values({
+            userId: authorId,
+            type: "math_event",
+            title: "Elegance Battle started ⚔",
+            body: `An Elegance Battle has started for "${result.shortTitle}" — your solution is in the ring!`,
+            actorName: "Math",
+            actorInitials: "M",
+          });
         } catch { /* non-blocking */ }
       }
     } catch { /* non-blocking */ }
 
-    res.status(201).json({ debateId: debate.id, existed: false });
+    res.status(201).json({ debateId: result.debateId, existed: false });
   } catch (err) {
     req.log.error({ err }, "startEleganceDebate failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ──────────────────────────────────────────────────────────────
 // GET /math/problems/:id/showdown
 // POST /math/problems/:id/showdown/vote
 // ──────────────────────────────────────────────────────────────
@@ -784,6 +778,22 @@ async function buildShowdownDetail(problemId: number, userId: string | undefined
 
   const solutionIds = solutions.map((s) => s.id);
 
+  const [battle] = await db
+    .select({
+      creatorUserId: debatesTable.creatorUserId,
+      creatorIsModerator: debatesTable.creatorIsModerator,
+      winnerAuthority: debatesTable.winnerAuthority,
+    })
+    .from(debatesTable)
+    .where(and(eq(debatesTable.mathProblemId, problemId), eq(debatesTable.category, "Mathematics")))
+    .orderBy(desc(debatesTable.createdAt))
+    .limit(1);
+  const excludedUserIds = new Set<string>();
+  if (battle?.creatorIsModerator && battle.creatorUserId) excludedUserIds.add(battle.creatorUserId);
+  const adminUserId = process.env["ADMIN_CLERK_ID"];
+  if (battle?.winnerAuthority === "admin" && adminUserId) excludedUserIds.add(adminUserId);
+  const excludedVoters = [...excludedUserIds];
+
   const voteRows = solutionIds.length
     ? await db
         .select({
@@ -792,7 +802,12 @@ async function buildShowdownDetail(problemId: number, userId: string | undefined
           count: sql<number>`count(*)::int`,
         })
         .from(mathShowdownVotesTable)
-        .where(inArray(mathShowdownVotesTable.solutionId, solutionIds))
+        .where(excludedVoters.length > 0
+          ? and(
+              inArray(mathShowdownVotesTable.solutionId, solutionIds),
+              notInArray(mathShowdownVotesTable.userId, excludedVoters),
+            )
+          : inArray(mathShowdownVotesTable.solutionId, solutionIds))
         .groupBy(mathShowdownVotesTable.solutionId, mathShowdownVotesTable.axis)
     : [];
 
@@ -808,7 +823,7 @@ async function buildShowdownDetail(problemId: number, userId: string | undefined
   }
 
   const myVotes: Record<ShowdownAxis, number | null> = { elegant: null, clear: null, rigorous: null, efficient: null };
-  if (userId) {
+  if (userId && !excludedUserIds.has(userId)) {
     const mine = await db
       .select({ solutionId: mathShowdownVotesTable.solutionId, axis: mathShowdownVotesTable.axis })
       .from(mathShowdownVotesTable)
@@ -871,7 +886,7 @@ router.post("/math/problems/:id/showdown/vote", async (req, res) => {
 
     const { axis, solutionId } = req.body ?? {};
     if (!SHOWDOWN_AXES.includes(axis)) { res.status(400).json({ error: "Invalid axis" }); return; }
-    if (typeof solutionId !== "number") { res.status(400).json({ error: "Invalid solutionId" }); return; }
+    if (!Number.isInteger(solutionId) || solutionId <= 0) { res.status(400).json({ error: "Invalid solutionId" }); return; }
 
     const [problem] = await db.select().from(mathProblemsTable).where(eq(mathProblemsTable.id, id));
     if (!problem) { res.status(404).json({ error: "Problem not found" }); return; }
@@ -882,6 +897,16 @@ router.post("/math/problems/:id/showdown/vote", async (req, res) => {
       .where(and(eq(mathSolutionsTable.id, solutionId), eq(mathSolutionsTable.problemId, id)));
     if (!solution) { res.status(404).json({ error: "Solution not found" }); return; }
 
+    const [battle] = await db.select().from(debatesTable)
+      .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+      .orderBy(desc(debatesTable.createdAt))
+      .limit(1);
+    if (battle && !battleAcceptsInteraction(battle)) {
+      res.status(409).json({ error: "Voting is closed because this elegance battle has ended" }); return;
+    }
+    if (battle && !mathBattlePermissions(battle, userId, process.env["ADMIN_CLERK_ID"]).canParticipate) {
+      res.status(403).json({ error: "Battle moderators cannot vote" }); return;
+    }
     // Block self-votes
     if (solution.userId === userId) {
       res.status(403).json({ error: "You cannot vote for your own solution" });
@@ -2098,16 +2123,12 @@ function parseStepsServer(text: string): { label: string | null; content: string
 router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
-    if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    const guestUserId = req.betterAuthSession?.user?.id ?? undefined;
-    const viewerId = clerkUserId ?? guestUserId ?? null;
-
+    const viewerId = req.betterAuthSession?.user?.id ?? null;
     const [problem] = await db.select().from(mathProblemsTable).where(eq(mathProblemsTable.id, id));
     if (!problem) { res.status(404).json({ error: "Problem not found" }); return; }
 
-    // Find the linked debate (elegance battle)
     const [debate] = await db
       .select()
       .from(debatesTable)
@@ -2120,135 +2141,131 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
       .from(mathSolutionsTable)
       .where(eq(mathSolutionsTable.problemId, id))
       .orderBy(desc(mathSolutionsTable.createdAt));
+    const showdown = await buildShowdownDetail(id, viewerId ?? undefined);
+    const showdownBySolution = new Map(showdown.solutions.map((solution) => [solution.id, solution]));
 
-    // Step soundness votes
     const stepVotes = await db
       .select()
       .from(mathBattleStepVotesTable)
       .where(eq(mathBattleStepVotesTable.problemId, id));
 
-    // Axis votes (my picks) — from showdown votes table
-    const myAxisVotesRows = viewerId
-      ? await db
-          .select()
-          .from(mathShowdownVotesTable)
-          .where(and(eq(mathShowdownVotesTable.problemId, id), eq(mathShowdownVotesTable.userId, viewerId)))
-      : [];
-
-    const myAxisVotes: Record<string, number | null> = { elegant: null, clear: null, rigorous: null, efficient: null };
-    for (const row of myAxisVotesRows) {
-      myAxisVotes[row.axis] = row.solutionId;
-    }
-
-    // Arguments
     const args = await db
       .select()
       .from(mathBattleStepArgumentsTable)
       .where(and(eq(mathBattleStepArgumentsTable.problemId, id), eq(mathBattleStepArgumentsTable.isRemoved, false)))
       .orderBy(asc(mathBattleStepArgumentsTable.createdAt));
 
-    // My argument votes
-    const argIds = args.map((a) => a.id);
+    const argIds = args.map((argument) => argument.id);
     const myArgVotes = argIds.length > 0 && viewerId
-      ? await db
-          .select()
-          .from(mathBattleStepArgumentVotesTable)
-          .where(
-            and(
-              eq(mathBattleStepArgumentVotesTable.userId, viewerId),
-              inArray(mathBattleStepArgumentVotesTable.argumentId, argIds),
-            ),
-          )
+      ? await db.select().from(mathBattleStepArgumentVotesTable).where(and(
+          eq(mathBattleStepArgumentVotesTable.userId, viewerId),
+          inArray(mathBattleStepArgumentVotesTable.argumentId, argIds),
+        ))
       : [];
-    const myArgVoteMap = new Map(myArgVotes.map((v) => [v.argumentId, v.vote]));
+    const myArgVoteMap = new Map(myArgVotes.map((vote) => [vote.argumentId, vote.vote]));
 
-    // Build nested argument tree (top-level + replies)
     type ArgOut = {
       id: number; solutionId: number; stepIndex: number; parentId: number | null;
-      userId: string; userName: string; content: string;
+      userId: string; userName: string; content: string; createdAt: string;
       upvotes: number; downvotes: number; isPinned: boolean; myVote: string | null;
       replies: ArgOut[];
     };
     const argMap = new Map<number, ArgOut>();
-    for (const a of args) {
-      argMap.set(a.id, {
-        id: a.id, solutionId: a.solutionId, stepIndex: a.stepIndex,
-        parentId: a.parentId ?? null, userId: a.userId, userName: a.userName,
-        content: a.content, upvotes: a.upvotes, downvotes: a.downvotes,
-        isPinned: a.isPinned, myVote: myArgVoteMap.get(a.id) ?? null,
+    for (const argument of args) {
+      argMap.set(argument.id, {
+        id: argument.id,
+        solutionId: argument.solutionId,
+        stepIndex: argument.stepIndex,
+        parentId: argument.parentId ?? null,
+        userId: argument.userId,
+        userName: argument.userName,
+        content: argument.content,
+        createdAt: argument.createdAt.toISOString(),
+        upvotes: argument.upvotes,
+        downvotes: argument.downvotes,
+        isPinned: argument.isPinned,
+        myVote: myArgVoteMap.get(argument.id) ?? null,
         replies: [],
       });
     }
     const topLevelArgs: ArgOut[] = [];
-    for (const a of args) {
-      const node = argMap.get(a.id)!;
-      if (a.parentId && argMap.has(a.parentId)) {
-        argMap.get(a.parentId)!.replies.push(node);
-      } else {
-        topLevelArgs.push(node);
-      }
+    for (const argument of args) {
+      const node = argMap.get(argument.id)!;
+      if (argument.parentId && argMap.has(argument.parentId)) argMap.get(argument.parentId)!.replies.push(node);
+      else topLevelArgs.push(node);
     }
 
-    // Compute step soundness per solution
-    const stepVotesBySolStep = new Map<string, { up: number; down: number }>();
-    for (const v of stepVotes) {
-      const key = `${v.solutionId}:${v.stepIndex}`;
-      const cur = stepVotesBySolStep.get(key) ?? { up: 0, down: 0 };
-      if (v.vote === "sound") cur.up++;
-      else cur.down++;
-      stepVotesBySolStep.set(key, cur);
+    const stepVotesBySolution = new Map<string, { up: number; down: number }>();
+    for (const vote of stepVotes) {
+      const key = `${vote.solutionId}:${vote.stepIndex}`;
+      const current = stepVotesBySolution.get(key) ?? { up: 0, down: 0 };
+      if (vote.vote === "sound") current.up += 1;
+      else current.down += 1;
+      stepVotesBySolution.set(key, current);
     }
 
-    const solutionsOut = solutions.map((sol) => {
-      const steps = parseStepsServer(sol.body);
-      const stepSoundness = steps.map((_, i) => {
-        const d = stepVotesBySolStep.get(`${sol.id}:${i}`) ?? { up: 0, down: 0 };
-        return { up: d.up, down: d.down };
-      });
+    const solutionsOut = solutions.map((solution) => {
+      const steps = parseStepsServer(solution.body);
+      const liveVotes = showdownBySolution.get(solution.id)?.votes ?? { elegant: 0, clear: 0, rigorous: 0, efficient: 0 };
       return {
-        id: sol.id,
-        userId: sol.userId,
-        userName: sol.userName,
-        approach: sol.approach,
-        body: sol.body,
-        steps: steps.map((s) => (s.label ? `**${s.label}:** ${s.content}` : s.content)),
-        stepSoundness,
-        votes: {
-          elegant: sol.eleganceVotes,
-          clear: sol.clarityVotes,
-          rigorous: sol.rigorVotes,
-          efficient: sol.efficiencyVotes,
-        },
-        isAccepted: sol.isAccepted,
-        solvingTime: sol.solvingTime ?? null,
+        id: solution.id,
+        userId: solution.userId,
+        userName: solution.userName,
+        approach: solution.approach,
+        body: solution.body,
+        steps: steps.map((step) => step.label ? `**${step.label}:** ${step.content}` : step.content),
+        stepSoundness: steps.map((_, stepIndex) => stepVotesBySolution.get(`${solution.id}:${stepIndex}`) ?? { up: 0, down: 0 }),
+        votes: liveVotes,
+        isAccepted: solution.isAccepted,
+        solvingTime: solution.solvingTime ?? null,
       };
     });
 
-    // Categories
-    const mostElegant = solutions.reduce((a, b) => (b.eleganceVotes > (a?.eleganceVotes ?? -1) ? b : a), solutions[0] as typeof solutions[0] | undefined);
-    const mostRigorous = solutions.reduce((a, b) => (b.rigorVotes > (a?.rigorVotes ?? -1) ? b : a), solutions[0] as typeof solutions[0] | undefined);
-    const clearest = solutions.reduce((a, b) => (b.clarityVotes > (a?.clarityVotes ?? -1) ? b : a), solutions[0] as typeof solutions[0] | undefined);
-    const mostEfficient = solutions.map((s) => ({ ...s, stepCount: parseStepsServer(s.body).length }))
-      .reduce((a, b) => (b.stepCount < (a?.stepCount ?? Infinity) ? b : a), undefined as (typeof solutions[0] & { stepCount: number }) | undefined);
+    function categoryWinner(axis: ShowdownAxis) {
+      let winner: (typeof solutionsOut)[number] | undefined;
+      for (const solution of solutionsOut) {
+        if (!winner || solution.votes[axis] > winner.votes[axis]) winner = solution;
+      }
+      return winner && winner.votes[axis] > 0 ? winner : undefined;
+    }
+    const mostElegant = categoryWinner("elegant");
+    const mostRigorous = categoryWinner("rigorous");
+    const clearest = categoryWinner("clear");
+    const mostEfficient = categoryWinner("efficient");
+
+    let verdictAuthor: string | null = null;
+    if (debate?.verdictByUserId) {
+      const [profile] = await db.select({ displayName: mathUserProfilesTable.displayName })
+        .from(mathUserProfilesTable)
+        .where(eq(mathUserProfilesTable.userId, debate.verdictByUserId))
+        .limit(1);
+      verdictAuthor = profile?.displayName ?? "Moderator";
+    }
+    const permissions = debate
+      ? mathBattlePermissions(debate, viewerId, process.env["ADMIN_CLERK_ID"])
+      : { canParticipate: false, canConclude: false };
+    const isEnded = debate ? !battleAcceptsInteraction(debate) : false;
 
     res.json({
       problemId: id,
       problemTitle: problem.title,
       battle: debate ? {
         debateId: debate.id,
-        isLive: debate.isLive,
-        isEnded: !!debate.endedAt,
+        isLive: debate.isLive && !isEnded,
+        isEnded,
         verdict: debate.verdictText ?? null,
-        verdictAuthor: debate.verdictByUserId ?? null,
+        verdictAuthor,
+        canParticipate: permissions.canParticipate,
+        canConclude: permissions.canConclude,
       } : null,
       solutions: solutionsOut,
       arguments: topLevelArgs,
-      myAxisVotes,
+      myAxisVotes: showdown.myVotes,
       categories: {
-        mostElegant: mostElegant ? { solutionId: mostElegant.id, votes: mostElegant.eleganceVotes } : null,
-        mostRigorous: mostRigorous ? { solutionId: mostRigorous.id, votes: mostRigorous.rigorVotes } : null,
-        clearest: clearest ? { solutionId: clearest.id, votes: clearest.clarityVotes } : null,
-        mostEfficient: mostEfficient ? { solutionId: mostEfficient.id, stepCount: mostEfficient.stepCount } : null,
+        mostElegant: mostElegant ? { solutionId: mostElegant.id, votes: mostElegant.votes.elegant } : null,
+        mostRigorous: mostRigorous ? { solutionId: mostRigorous.id, votes: mostRigorous.votes.rigorous } : null,
+        clearest: clearest ? { solutionId: clearest.id, votes: clearest.votes.clear } : null,
+        mostEfficient: mostEfficient ? { solutionId: mostEfficient.id, stepCount: parseStepsServer(mostEfficient.body).length } : null,
       },
     });
   } catch (err) {
@@ -2256,72 +2273,99 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 router.post("/math/problems/:id/elegance-battle/arguments", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
-    if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkUserId) { res.status(401).json({ error: "Sign in required" }); return; }
+    const userId = req.betterAuthSession?.user?.id ?? null;
+    if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
 
     const { solutionId, stepIndex, content, parentId } = (req.body ?? {}) as {
       solutionId?: number; stepIndex?: number; content?: string; parentId?: number;
     };
-    if (!solutionId || stepIndex === undefined || !content?.trim()) {
-      res.status(400).json({ error: "solutionId, stepIndex, and content are required" }); return;
+    const normalizedContent = normalizeMathBattleText(content);
+    if (!Number.isInteger(solutionId) || Number(solutionId) <= 0 || !normalizedContent) {
+      res.status(400).json({ error: "A valid solution and 1–4,000 characters of reasoning are required" }); return;
     }
 
-    if (!Number.isInteger(stepIndex) || stepIndex < 0) { res.status(400).json({ error: "stepIndex must be a non-negative integer" }); return; }
-    const [solution] = await db.select({ id: mathSolutionsTable.id }).from(mathSolutionsTable)
-      .where(and(eq(mathSolutionsTable.id, solutionId), eq(mathSolutionsTable.problemId, id))).limit(1);
+    const [solution] = await db.select({ id: mathSolutionsTable.id, body: mathSolutionsTable.body })
+      .from(mathSolutionsTable)
+      .where(and(eq(mathSolutionsTable.id, Number(solutionId)), eq(mathSolutionsTable.problemId, id)))
+      .limit(1);
     if (!solution) { res.status(404).json({ error: "Solution not found for this problem" }); return; }
-    const [battle] = await db.select({ endedAt: debatesTable.endedAt, winnerStatus: debatesTable.winnerStatus })
-      .from(debatesTable).where(eq(debatesTable.mathProblemId, id)).limit(1);
+    if (!validMathBattleStep(stepIndex, parseStepsServer(solution.body).length)) {
+      res.status(400).json({ error: "stepIndex does not identify a step in this solution" }); return;
+    }
+
+    const [battle] = await db.select().from(debatesTable)
+      .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+      .orderBy(desc(debatesTable.createdAt))
+      .limit(1);
     if (!battle) { res.status(404).json({ error: "Elegance battle not found" }); return; }
     if (!battleAcceptsInteraction(battle)) { res.status(409).json({ error: "This elegance battle has ended" }); return; }
-    if (parentId !== undefined) {
-      const [parent] = await db.select({ id: mathBattleStepArgumentsTable.id }).from(mathBattleStepArgumentsTable)
-        .where(and(
-          eq(mathBattleStepArgumentsTable.id, parentId),
-          eq(mathBattleStepArgumentsTable.problemId, id),
-          eq(mathBattleStepArgumentsTable.solutionId, solutionId),
-        )).limit(1);
-      if (!parent) { res.status(404).json({ error: "Parent argument not found for this solution" }); return; }
+    const permissions = mathBattlePermissions(battle, userId, process.env["ADMIN_CLERK_ID"]);
+    if (!permissions.canParticipate) {
+      res.status(403).json({ error: "Battle moderators cannot participate in arguments" }); return;
     }
+
+    if (parentId !== undefined) {
+      if (!Number.isInteger(parentId) || parentId <= 0) { res.status(400).json({ error: "Invalid parentId" }); return; }
+      const [parent] = await db.select({
+        id: mathBattleStepArgumentsTable.id,
+        stepIndex: mathBattleStepArgumentsTable.stepIndex,
+        parentId: mathBattleStepArgumentsTable.parentId,
+        isRemoved: mathBattleStepArgumentsTable.isRemoved,
+      }).from(mathBattleStepArgumentsTable).where(and(
+        eq(mathBattleStepArgumentsTable.id, parentId),
+        eq(mathBattleStepArgumentsTable.problemId, id),
+        eq(mathBattleStepArgumentsTable.solutionId, Number(solutionId)),
+      )).limit(1);
+      if (!parent || parent.isRemoved || parent.stepIndex !== stepIndex || parent.parentId !== null) {
+        res.status(400).json({ error: "Replies must target a visible top-level argument on the same step" }); return;
+      }
+    }
+
     const user = await jitProvisionUser(req.betterAuthSession?.user ?? null);
     if (!user) { res.status(503).json({ error: "Could not create user profile" }); return; }
-
-    const [arg] = await db
-      .insert(mathBattleStepArgumentsTable)
-      .values({
-        problemId: id,
-        solutionId,
-        stepIndex,
-        content: content.trim(),
-        parentId: parentId ?? null,
-        userId: clerkUserId,
-        userName: user?.name ?? "Anonymous",
-      })
-      .returning();
+    const [argument] = await db.insert(mathBattleStepArgumentsTable).values({
+      problemId: id,
+      solutionId: Number(solutionId),
+      stepIndex,
+      content: normalizedContent,
+      parentId: parentId ?? null,
+      userId,
+      userName: user.name ?? "Anonymous",
+    }).returning();
+    if (!argument) { res.status(500).json({ error: "Failed to create argument" }); return; }
 
     res.status(201).json({
-      id: arg!.id, solutionId: arg!.solutionId, stepIndex: arg!.stepIndex,
-      parentId: arg!.parentId ?? null, userId: arg!.userId, userName: arg!.userName,
-      content: arg!.content, upvotes: arg!.upvotes, downvotes: arg!.downvotes,
-      isPinned: arg!.isPinned, myVote: null, replies: [],
+      id: argument.id,
+      solutionId: argument.solutionId,
+      stepIndex: argument.stepIndex,
+      parentId: argument.parentId ?? null,
+      userId: argument.userId,
+      userName: argument.userName,
+      content: argument.content,
+      createdAt: argument.createdAt.toISOString(),
+      upvotes: argument.upvotes,
+      downvotes: argument.downvotes,
+      isPinned: argument.isPinned,
+      myVote: null,
+      replies: [],
     });
   } catch (err) {
     req.log.error({ err }, "postEleganceBattleArgument failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 router.post("/math/problems/:id/elegance-battle/arguments/:argId/vote", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
     const argId = Number(req.params["argId"]);
-    if (!id || isNaN(id) || !argId || isNaN(argId)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(argId) || argId <= 0) {
+      res.status(400).json({ error: "Invalid id" }); return;
+    }
     const userId = req.betterAuthSession?.user?.id ?? null;
     if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
     const { vote } = (req.body ?? {}) as { vote?: string };
@@ -2329,14 +2373,21 @@ router.post("/math/problems/:id/elegance-battle/arguments/:argId/vote", async (r
 
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`SELECT pg_advisory_xact_lock(3, ${argId})`);
-      const [arg] = await tx.select().from(mathBattleStepArgumentsTable)
+      const [argument] = await tx.select().from(mathBattleStepArgumentsTable)
         .where(and(eq(mathBattleStepArgumentsTable.id, argId), eq(mathBattleStepArgumentsTable.problemId, id)))
         .limit(1);
-      if (!arg || arg.isRemoved) return { kind: "missing" as const };
-      if (arg.userId === userId) return { kind: "self" as const };
-      const [battle] = await tx.select({ endedAt: debatesTable.endedAt, winnerStatus: debatesTable.winnerStatus })
-        .from(debatesTable).where(eq(debatesTable.mathProblemId, id)).limit(1);
+      if (!argument || argument.isRemoved) return { kind: "missing" as const };
+      if (argument.userId === userId) return { kind: "self" as const };
+
+      const [battle] = await tx.select().from(debatesTable)
+        .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+        .orderBy(desc(debatesTable.createdAt))
+        .limit(1);
       if (!battle || !battleAcceptsInteraction(battle)) return { kind: "closed" as const };
+      if (!mathBattlePermissions(battle, userId, process.env["ADMIN_CLERK_ID"]).canParticipate) {
+        return { kind: "moderator" as const };
+      }
+
       const [existing] = await tx.select().from(mathBattleStepArgumentVotesTable)
         .where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)))
         .limit(1);
@@ -2344,10 +2395,16 @@ router.post("/math/problems/:id/elegance-battle/arguments/:argId/vote", async (r
       if (!existing) {
         await tx.insert(mathBattleStepArgumentVotesTable).values({ userId, argumentId: argId, vote });
       } else if (existing.vote === vote) {
-        await tx.delete(mathBattleStepArgumentVotesTable).where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
+        await tx.delete(mathBattleStepArgumentVotesTable).where(and(
+          eq(mathBattleStepArgumentVotesTable.userId, userId),
+          eq(mathBattleStepArgumentVotesTable.argumentId, argId),
+        ));
         myVote = null;
       } else {
-        await tx.update(mathBattleStepArgumentVotesTable).set({ vote }).where(and(eq(mathBattleStepArgumentVotesTable.userId, userId), eq(mathBattleStepArgumentVotesTable.argumentId, argId)));
+        await tx.update(mathBattleStepArgumentVotesTable).set({ vote }).where(and(
+          eq(mathBattleStepArgumentVotesTable.userId, userId),
+          eq(mathBattleStepArgumentVotesTable.argumentId, argId),
+        ));
       }
       const counts = await tx.select({ vote: mathBattleStepArgumentVotesTable.vote, count: sql<number>`count(*)::int` })
         .from(mathBattleStepArgumentVotesTable)
@@ -2355,64 +2412,60 @@ router.post("/math/problems/:id/elegance-battle/arguments/:argId/vote", async (r
         .groupBy(mathBattleStepArgumentVotesTable.vote);
       const upvotes = counts.find((row) => row.vote === "up")?.count ?? 0;
       const downvotes = counts.find((row) => row.vote === "down")?.count ?? 0;
-      await tx.update(mathBattleStepArgumentsTable).set({ upvotes, downvotes }).where(eq(mathBattleStepArgumentsTable.id, argId));
+      await tx.update(mathBattleStepArgumentsTable).set({ upvotes, downvotes })
+        .where(eq(mathBattleStepArgumentsTable.id, argId));
       return { kind: "ok" as const, upvotes, downvotes, myVote };
     });
+
     if (result.kind === "missing") { res.status(404).json({ error: "Argument not found" }); return; }
     if (result.kind === "self") { res.status(403).json({ error: "You cannot vote on your own argument" }); return; }
     if (result.kind === "closed") { res.status(409).json({ error: "This elegance battle has ended" }); return; }
+    if (result.kind === "moderator") { res.status(403).json({ error: "Battle moderators cannot vote on arguments" }); return; }
     res.json({ upvotes: result.upvotes, downvotes: result.downvotes, myVote: result.myVote });
   } catch (err) {
     req.log.error({ err }, "voteEleganceBattleArgument failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 router.post("/math/problems/:id/elegance-battle/conclude", async (req, res) => {
   try {
     const id = Number(req.params["id"]);
-    if (!id || isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    const userId = req.betterAuthSession?.user?.id ?? null;
+    if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
+    const verdict = normalizeMathBattleText((req.body ?? {}).verdict);
+    if (!verdict) { res.status(400).json({ error: "A verdict of 1–4,000 characters is required" }); return; }
 
-    const clerkUserId = req.betterAuthSession?.user?.id ?? null;
-    if (!clerkUserId) { res.status(401).json({ error: "Sign in required" }); return; }
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(42, ${id})`);
+      const [debate] = await tx.select().from(debatesTable)
+        .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+        .orderBy(desc(debatesTable.createdAt))
+        .limit(1);
+      if (!debate) return "missing" as const;
+      if (!battleAcceptsInteraction(debate)) return "closed" as const;
+      if (!mathBattlePermissions(debate, userId, process.env["ADMIN_CLERK_ID"]).canConclude) return "forbidden" as const;
 
-    const { verdict } = (req.body ?? {}) as { verdict?: string };
-    if (!verdict?.trim()) { res.status(400).json({ error: "verdict is required" }); return; }
-
-    const [debate] = await db
-      .select()
-      .from(debatesTable)
-      .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
-      .orderBy(desc(debatesTable.createdAt))
-      .limit(1);
-
-    if (!debate) { res.status(404).json({ error: "No elegance battle found for this problem" }); return; }
-
-    // Only creator (if moderator) or admin can conclude
-    const isAdmin = clerkUserId === process.env["ADMIN_CLERK_ID"];
-    const isCreatorMod = debate.creatorUserId === clerkUserId && debate.creatorIsModerator;
-    if (!isAdmin && !isCreatorMod) {
-      res.status(403).json({ error: "Only the moderator or an admin can conclude this battle" }); return;
-    }
-
-    await db
-      .update(debatesTable)
-      .set({
-        winnerStatus: "creator_declared",
+      await tx.update(debatesTable).set({
+        isLive: false,
+        winnerStatus: debate.creatorUserId === userId ? "creator_declared" : "admin_decided",
         endedAt: new Date(),
         endedEarly: true,
-        verdictText: verdict.trim(),
-        verdictByUserId: clerkUserId,
-      })
-      .where(eq(debatesTable.id, debate.id));
+        verdictText: verdict,
+        verdictByUserId: userId,
+      }).where(and(eq(debatesTable.id, debate.id), isNull(debatesTable.endedAt)));
+      return "ok" as const;
+    });
 
+    if (result === "missing") { res.status(404).json({ error: "No elegance battle found for this problem" }); return; }
+    if (result === "closed") { res.status(409).json({ error: "This elegance battle has already ended" }); return; }
+    if (result === "forbidden") { res.status(403).json({ error: "Only the moderator or an admin can conclude this battle" }); return; }
     res.json({ ok: true });
   } catch (err) {
     req.log.error({ err }, "concludeEleganceBattle failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
-
 // Suppress unused-import warnings for or/isNull (used in future route expansions)
 void or; void isNull;
 

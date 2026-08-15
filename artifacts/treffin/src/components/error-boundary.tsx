@@ -12,9 +12,8 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    if (import.meta.env.DEV) {
-      console.error("ErrorBoundary caught:", error, info);
-    }
+    // Keep production failures diagnosable without logging session data.
+    console.error("ErrorBoundary caught:", error.message, info.componentStack);
   }
 
   reset = () => {

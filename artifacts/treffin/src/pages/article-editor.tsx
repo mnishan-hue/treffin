@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useCreateArticle, useGetTopics } from "@workspace/api-client-react";
 import { useLocation, Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { useSession } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { MathText } from "@/components/math/math-renderer";
 import { Progress } from "@/components/ui/progress";
@@ -61,22 +62,22 @@ type ArticleDraft = {
   peerReview: boolean; imageUrl: string; savedAt: number;
 };
 
-function loadDraft(): ArticleDraft | null {
+function loadDraft(key: string): ArticleDraft | null {
   try {
-    const raw = localStorage.getItem(DRAFT_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as ArticleDraft;
     if (typeof parsed.title !== "string" || typeof parsed.body !== "string") return null;
     return parsed;
   } catch { return null; }
 }
-function saveDraft(d: Omit<ArticleDraft, "savedAt">) {
+function saveDraft(key: string, d: Omit<ArticleDraft, "savedAt">) {
   try {
-    if (!d.title.trim() && !d.body.trim()) { localStorage.removeItem(DRAFT_KEY); return; }
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ ...d, savedAt: Date.now() }));
+    if (!d.title.trim() && !d.body.trim()) { localStorage.removeItem(key); return; }
+    localStorage.setItem(key, JSON.stringify({ ...d, savedAt: Date.now() }));
   } catch { /* best-effort */ }
 }
-function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ } }
+function clearDraft(key: string) { try { localStorage.removeItem(key); } catch { /* ignore */ } }
 function wordCount(t: string) { return t.trim().split(/\s+/).filter(Boolean).length; }
 function fmtDuration(secs: number) {
   if (secs < 60) return `${secs}s`;
@@ -339,22 +340,38 @@ function ArticlePreview({ title, body, imageUrl, selectedTags, peerReview, readT
 /* ── Main page ──────────────────────────────────────────────────── */
 export default function ArticleEditor() {
   const { toast } = useToast();
+  const { user, isLoaded } = useSession();
   const [, setLocation] = useLocation();
+  const storageKey = `${DRAFT_KEY}:${user?.id ?? "guest"}`;
   const createArticle = useCreateArticle();
   const { data: topicsData } = useGetTopics();
   const topics = topicsData?.map((t) => t.name) ?? ["Philosophy", "Economics", "Technology", "Science", "Politics", "Psychology", "Culture", "Mathematics", "History", "Literature"];
 
-  const initial = loadDraft();
-  const [title, setTitle]             = useState(initial?.title ?? "");
-  const [body, setBody]               = useState(initial?.body ?? "");
-  const [selectedTags, setSelectedTags] = useState<string[]>(initial?.selectedTags ?? []);
-  const [peerReview, setPeerReview]   = useState(initial?.peerReview ?? false);
-  const [imageUrl, setImageUrl]       = useState(initial?.imageUrl ?? "");
+  const [title, setTitle]             = useState("");
+  const [body, setBody]               = useState("");
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [peerReview, setPeerReview]   = useState(false);
+  const [imageUrl, setImageUrl]       = useState("");
   const [imageError, setImageError]   = useState(false);
   const [mode, setMode]               = useState<"write" | "preview">("write");
-  const [savedAt, setSavedAt]         = useState<Date | null>(initial ? new Date(initial.savedAt) : null);
+  const [savedAt, setSavedAt]         = useState<Date | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [restoredDraft]               = useState(!!initial);
+  const [restoredDraft, setRestoredDraft] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    setDraftLoaded(false);
+    const draft = loadDraft(storageKey);
+    setTitle(draft?.title ?? "");
+    setBody(draft?.body ?? "");
+    setSelectedTags(draft?.selectedTags ?? []);
+    setPeerReview(draft?.peerReview ?? false);
+    setImageUrl(draft?.imageUrl ?? "");
+    setSavedAt(draft ? new Date(draft.savedAt) : null);
+    setRestoredDraft(Boolean(draft));
+    setDraftLoaded(true);
+  }, [isLoaded, storageKey]);
 
   // ── Plan 1 state ──────────────────────────────────────────────
   const [focusMode, setFocusMode]     = useState(false);
@@ -456,11 +473,12 @@ export default function ArticleEditor() {
   // ── Auto-save ─────────────────────────────────────────────────
   useEffect(() => {
     const id = setInterval(() => {
-      saveDraft({ title, body, selectedTags, peerReview, imageUrl });
+      if (!draftLoaded) return;
+      saveDraft(storageKey, { title, body, selectedTags, peerReview, imageUrl });
       setSavedAt(new Date());
     }, AUTOSAVE_INTERVAL);
     return () => clearInterval(id);
-  }, [title, body, selectedTags, peerReview, imageUrl]);
+  }, [title, body, selectedTags, peerReview, imageUrl, draftLoaded, storageKey]);
 
   // ── handleFormat — declared before effects that reference it ──
   const handleFormat = useCallback((type: "bold" | "italic" | "h2" | "quote" | "code" | "link") => {
@@ -516,7 +534,7 @@ export default function ArticleEditor() {
   };
 
   const handleSave = () => {
-    saveDraft({ title, body, selectedTags, peerReview, imageUrl });
+    saveDraft(storageKey, { title, body, selectedTags, peerReview, imageUrl });
     setSavedAt(new Date());
     toast({ title: "Draft saved" });
   };
@@ -531,7 +549,7 @@ export default function ArticleEditor() {
       { data: { title: title.trim(), content: body.trim(), category: selectedTags[0] ?? undefined, peerReview: peerReview || undefined, imageUrl: imageUrl.trim() || undefined } },
       {
         onSuccess: (article) => {
-          clearDraft();
+          clearDraft(storageKey);
           toast({ title: "Published!", description: peerReview ? "Submitted for peer review." : "Your article is now live." });
           setLocation(`/articles/${article.id}`);
         },
@@ -692,6 +710,7 @@ export default function ArticleEditor() {
 
             <button
               onClick={() => setMode((m) => m === "write" ? "preview" : "write")}
+              aria-label={mode === "write" ? "Preview article" : "Edit article"}
               className={cn(
                 "flex items-center gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors",
                 mode === "preview"
@@ -708,6 +727,7 @@ export default function ArticleEditor() {
                 <span>
                   <button
                     onClick={handlePublish}
+                    aria-label={createArticle.isPending ? "Publishing article" : "Publish article"}
                     disabled={createArticle.isPending || !canPublish}
                     className={cn(
                       "flex items-center gap-1.5 px-2.5 sm:px-4 py-1.5 rounded-lg text-sm font-semibold transition-all",
@@ -738,7 +758,7 @@ export default function ArticleEditor() {
                 <FileText className="w-4 h-4 text-primary shrink-0" />
                 <span className="flex-1">Draft restored from your last session.</span>
                 <button
-                  onClick={() => { clearDraft(); setTitle(""); setBody(""); setSelectedTags([]); setPeerReview(false); setImageUrl(""); }}
+                  onClick={() => { clearDraft(storageKey); setTitle(""); setBody(""); setSelectedTags([]); setPeerReview(false); setImageUrl(""); setRestoredDraft(false); }}
                   className="text-xs font-semibold text-primary/80 hover:text-primary"
                 >Discard</button>
               </div>

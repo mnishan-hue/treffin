@@ -5,6 +5,7 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MathBattleArgumentMyVote } from './mathBattleArgumentMyVote';
 
 export interface MathBattleArgument {
   id: number;
@@ -15,10 +16,11 @@ export interface MathBattleArgument {
   userId: string;
   userName: string;
   content: string;
+  createdAt?: string;
   upvotes: number;
   downvotes: number;
   isPinned: boolean;
   /** @nullable */
-  myVote: string | null;
+  myVote: MathBattleArgumentMyVote;
   replies: MathBattleArgument[];
 }

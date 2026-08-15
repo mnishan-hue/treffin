@@ -8,7 +8,7 @@
         "build": "node ./build.mjs",
         "start": "node --enable-source-maps ./dist/index.mjs",
         "typecheck": "tsc -p tsconfig.json --noEmit",
-        "test": "tsx --test src/lib/__tests__/security-policy.test.ts src/lib/__tests__/admin-session.test.ts src/lib/__tests__/email-branding.test.ts"
+        "test": "tsx --test src/lib/__tests__/security-policy.test.ts src/lib/__tests__/admin-session.test.ts src/lib/__tests__/email-branding.test.ts src/lib/__tests__/reputation-settings.test.ts"
     },
     "dependencies": {
         "@opentelemetry/semantic-conventions": "^1.43.0",

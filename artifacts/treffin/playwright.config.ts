@@ -28,8 +28,9 @@ export default defineConfig({
     },
   ],
   projects: [
-    { name: "desktop-chromium", testIgnore: /admin-auth\.spec\.ts/, use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:4173" } },
-    { name: "mobile-chromium", testIgnore: /admin-auth\.spec\.ts/, use: { ...devices["Pixel 5"], baseURL: "http://127.0.0.1:4173" } },
+    { name: "desktop-chromium", testIgnore: /(?:admin-auth|pwa)\.spec\.ts/, use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:4173" } },
+    { name: "mobile-chromium", testIgnore: /(?:admin-auth|pwa)\.spec\.ts/, use: { ...devices["Pixel 5"], baseURL: "http://127.0.0.1:4173" } },
+    { name: "pwa-mobile-chromium", testMatch: /pwa\.spec\.ts/, use: { ...devices["Pixel 5"], baseURL: "http://127.0.0.1:4173", serviceWorkers: "allow" } },
     { name: "admin-chromium", testMatch: /admin-auth\.spec\.ts/, use: { ...devices["Desktop Chrome"], baseURL: "http://127.0.0.1:4174" } },
     { name: "admin-mobile-chromium", testMatch: /admin-auth\.spec\.ts/, use: { ...devices["Pixel 5"], baseURL: "http://127.0.0.1:4174" } },
   ],

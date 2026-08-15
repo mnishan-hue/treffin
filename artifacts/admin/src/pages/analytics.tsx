@@ -21,7 +21,7 @@ interface AuditEntry {
   action: string;
   targetType: string | null;
   targetId: number | null;
-  adminNote: string | null;
+  reason: string | null;
   createdAt: string;
 }
 
@@ -234,7 +234,7 @@ export default function Analytics({ onNavigate }: { onNavigate: (s: Section) => 
                   {entry.action.replace(/_/g, " ")}
                 </span>
                 <span className="text-xs text-muted-foreground truncate flex-1">
-                  {entry.adminNote ?? `${entry.targetType ?? "?"} #${entry.targetId}`}
+                  {entry.reason ?? `${entry.targetType ?? "?"} #${entry.targetId}`}
                 </span>
                 <span className="text-[10px] text-muted-foreground/50 shrink-0">
                   {(() => { const d = new Date(entry.createdAt); return isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); })()}

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { reportAdminRequestError } from "../lib/admin-events";
 
 // Strip trailing slash once — mirrors lib/api.ts
 const apiOrigin = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
@@ -22,7 +23,9 @@ export function useAdminFetch() {
     }
     if (!response.ok) {
       const payload = await response.clone().json().catch(() => ({ error: response.statusText }));
-      throw new Error(payload.error ?? "Request failed (" + response.status + ")");
+      const message = payload.error ?? "Request failed (" + response.status + ")";
+      reportAdminRequestError(message);
+      throw new Error(message);
     }
     return response;
   }, []);

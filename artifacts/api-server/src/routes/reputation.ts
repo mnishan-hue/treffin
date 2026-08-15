@@ -2,42 +2,39 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { reputationEventsTable, usersTable, notificationsTable, appSettingsTable } from "@workspace/db";
 import { and, eq, desc, sql } from "drizzle-orm";
+import {
+  DEFAULT_ELITE_THRESHOLD,
+  ELITE_THRESHOLD_SETTING_KEY,
+  parseEliteThreshold,
+  titleForReputation,
+} from "../lib/reputation-settings";
 
-// ---------------------------------------------------------------------------
-// Elite Thinker threshold — loaded from DB at startup, cached in memory.
-// Use getEliteThreshold() everywhere; call setEliteThreshold() when admin
-// updates it so the change takes effect instantly without a server restart.
-// ---------------------------------------------------------------------------
-const SETTING_KEY = "elite_thinker_threshold";
-const DEFAULT_THRESHOLD = 1000;
+let _eliteThreshold = DEFAULT_ELITE_THRESHOLD;
 
-let _eliteThreshold = DEFAULT_THRESHOLD;
-
-/** Returns the cached Elite Thinker reputation threshold. */
+/** Returns the threshold cached by the API process. */
 export function getEliteThreshold(): number {
   return _eliteThreshold;
 }
 
-/** Updates the in-memory cache (called after DB write by the admin route). */
+/** Updates the process cache after a successful transactional DB write. */
 export function setEliteThreshold(value: number): void {
-  _eliteThreshold = value;
+  const parsed = parseEliteThreshold(value);
+  if (parsed === null) throw new Error("Invalid Elite Thinker threshold");
+  _eliteThreshold = parsed;
 }
 
-/** Initialise the threshold from the DB. Call once during server startup. */
-export async function loadEliteThreshold(): Promise<void> {
-  try {
-    const [row] = await db
-      .select({ value: appSettingsTable.value })
-      .from(appSettingsTable)
-      .where(eq(appSettingsTable.key, SETTING_KEY))
-      .limit(1);
-    if (row) _eliteThreshold = Math.max(1, parseInt(row.value, 10) || DEFAULT_THRESHOLD);
-  } catch {
-    // DB might not have the table yet (before first migration) — use default.
-  }
+/** Refreshes the cache from the authoritative database value. */
+export async function loadEliteThreshold(): Promise<number> {
+  const [row] = await db
+    .select({ value: appSettingsTable.value })
+    .from(appSettingsTable)
+    .where(eq(appSettingsTable.key, ELITE_THRESHOLD_SETTING_KEY))
+    .limit(1);
+  const parsed = row ? parseEliteThreshold(row.value) : DEFAULT_ELITE_THRESHOLD;
+  if (parsed === null) throw new Error("Stored Elite Thinker threshold is invalid");
+  _eliteThreshold = parsed;
+  return parsed;
 }
-
-
 
 const router = Router();
 
@@ -58,20 +55,14 @@ export const REP_VALUES: Record<string, number> = {
   long_comment: 5,
 };
 
-function titleForScore(score: number): string {
-  const elite = _eliteThreshold;
-  if (score >= elite) return "Elite Thinker";
-  if (score >= Math.floor(elite * 0.6)) return "Intellectual";
-  if (score >= Math.floor(elite * 0.3)) return "Scholar";
-  if (score >= Math.floor(elite * 0.1)) return "Thinker";
-  return "Novice";
-}
 export async function awardRep(
   userId: string,
   eventType: string,
   description: string,
   referenceId?: number
 ) {
+  // Refresh before calculating a title so every API instance observes admin changes.
+  const eliteThreshold = await loadEliteThreshold().catch(() => _eliteThreshold);
   const points = REP_VALUES[eventType] ?? 5;
   const idempotentEvents = new Set([
     "post_created", "article_created", "article_liked", "debate_created", "debate_joined",
@@ -111,7 +102,7 @@ export async function awardRep(
       .where(eq(usersTable.betterAuthId, userId))
       .returning({ reputationScore: usersTable.reputationScore });
     if (updated) {
-      const newTitle = titleForScore(updated.reputationScore);
+      const newTitle = titleForReputation(updated.reputationScore, eliteThreshold);
       await tx
         .update(usersTable)
         .set({ title: newTitle })

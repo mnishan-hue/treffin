@@ -242,7 +242,7 @@ export async function sendWelcomeEmail(email: string, firstName: string): Promis
     if (error) {
       logger.error({ error }, "Failed to send welcome email via Resend");
     } else {
-      logger.info({ email }, "Welcome email sent successfully");
+      logger.info("Welcome email sent successfully");
     }
   } catch (err) {
     logger.error({ err }, "Exception sending welcome email");
@@ -282,7 +282,7 @@ export async function sendLoginOtpEmail(
     logger.error({ error }, "Failed to send login OTP via Resend");
     throw new Error("Login email provider rejected the OTP request");
   }
-  logger.info({ email }, "Login OTP email sent");
+  logger.info("Login OTP email sent");
 }
 
 export async function sendPasswordResetEmail(
@@ -291,8 +291,8 @@ export async function sendPasswordResetEmail(
   resetUrl: string,
 ): Promise<void> {
   if (!process.env.RESEND_API_KEY) {
-    logger.warn("RESEND_API_KEY not set - password reset email was not sent");
-    return;
+    logger.error("RESEND_API_KEY not set - password reset email cannot be sent");
+    throw new Error("Password reset email service is not configured");
   }
   const name = escapeEmailHtml(displayName?.trim() || "there");
   const safeUrl = escapeEmailHtml(resetUrl);

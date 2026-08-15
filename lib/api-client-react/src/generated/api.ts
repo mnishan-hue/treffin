@@ -50,6 +50,7 @@ import type {
   CommunityInput,
   CommunityJoinRequest,
   CommunityMembershipResult,
+  CommunityOwnershipTransferInput,
   CommunityRulesInput,
   ConcludeEleganceBattle200,
   ConcludeEleganceBattleInput,
@@ -105,7 +106,6 @@ import type {
   MathContest,
   MathContestDetail,
   MathContestEntry,
-  MathContestInput,
   MathDifficultyRatingInput,
   MathDifficultyStats,
   MathFlagInput,
@@ -148,6 +148,7 @@ import type {
   ToggleMathReaction200,
   TopThinker,
   Topic,
+  TransferCommunityOwnership200,
   TrendingDebate,
   TrendingToggle,
   UpdateUserInterests200,
@@ -2405,9 +2406,9 @@ export const getGetDailyQuestionUrl = () => {
 /**
  * @summary Get daily big question for the hero banner
  */
-export const getDailyQuestion = async ( options?: RequestInit): Promise<DailyQuestion> => {
+export const getDailyQuestion = async ( options?: RequestInit): Promise<DailyQuestion | null> => {
 
-  return customFetch<DailyQuestion>(getGetDailyQuestionUrl(),
+  return customFetch<DailyQuestion | null>(getGetDailyQuestionUrl(),
   {
     ...options,
     method: 'GET'
@@ -2482,9 +2483,9 @@ export const getGetWeeklyChallengeUrl = () => {
 /**
  * @summary Get active weekly challenge
  */
-export const getWeeklyChallenge = async ( options?: RequestInit): Promise<WeeklyChallenge> => {
+export const getWeeklyChallenge = async ( options?: RequestInit): Promise<WeeklyChallenge | null> => {
 
-  return customFetch<WeeklyChallenge>(getGetWeeklyChallengeUrl(),
+  return customFetch<WeeklyChallenge | null>(getGetWeeklyChallengeUrl(),
   {
     ...options,
     method: 'GET'
@@ -2985,6 +2986,78 @@ export function useGetCommunity<TData = Awaited<ReturnType<typeof getCommunity>>
 
 
 
+
+export const getTransferCommunityOwnershipUrl = (id: number,) => {
+
+
+
+
+  return `/api/communities/${id}/transfer-ownership`
+}
+
+/**
+ * @summary Transfer community ownership to an approved member
+ */
+export const transferCommunityOwnership = async (id: number,
+    communityOwnershipTransferInput: CommunityOwnershipTransferInput, options?: RequestInit): Promise<TransferCommunityOwnership200> => {
+
+  return customFetch<TransferCommunityOwnership200>(getTransferCommunityOwnershipUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(communityOwnershipTransferInput)
+  }
+);}
+
+
+
+
+
+export const getTransferCommunityOwnershipMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferCommunityOwnership>>, TError,{id: number;data: BodyType<CommunityOwnershipTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof transferCommunityOwnership>>, TError,{id: number;data: BodyType<CommunityOwnershipTransferInput>}, TContext> => {
+
+const mutationKey = ['transferCommunityOwnership'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof transferCommunityOwnership>>, {id: number;data: BodyType<CommunityOwnershipTransferInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  transferCommunityOwnership(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TransferCommunityOwnershipMutationResult = NonNullable<Awaited<ReturnType<typeof transferCommunityOwnership>>>
+    export type TransferCommunityOwnershipMutationBody = BodyType<CommunityOwnershipTransferInput>
+    export type TransferCommunityOwnershipMutationError = ErrorType<void>
+
+    /**
+ * @summary Transfer community ownership to an approved member
+ */
+export const useTransferCommunityOwnership = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof transferCommunityOwnership>>, TError,{id: number;data: BodyType<CommunityOwnershipTransferInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof transferCommunityOwnership>>,
+        TError,
+        {id: number;data: BodyType<CommunityOwnershipTransferInput>},
+        TContext
+      > => {
+      return useMutation(getTransferCommunityOwnershipMutationOptions(options));
+    }
 
 export const getUpdateCommunityRulesUrl = (id: number,) => {
 
@@ -9361,7 +9434,7 @@ export const getGetEleganceBattleFullUrl = (id: number,) => {
 }
 
 /**
- * @summary Get full elegance battle data for the dedicated battle page
+ * @summary Get full elegance battle data
  */
 export const getEleganceBattleFull = async (id: number, options?: RequestInit): Promise<MathBattleFullResponse> => {
 
@@ -9408,7 +9481,7 @@ export type GetEleganceBattleFullQueryError = ErrorType<void>
 
 
 /**
- * @summary Get full elegance battle data for the dedicated battle page
+ * @summary Get full elegance battle data
  */
 
 export function useGetEleganceBattleFull<TData = Awaited<ReturnType<typeof getEleganceBattleFull>>, TError = ErrorType<void>>(
@@ -9438,7 +9511,7 @@ export const getPostEleganceBattleArgumentUrl = (id: number,) => {
 }
 
 /**
- * @summary Post a step justification argument in an elegance battle
+ * @summary Post a step argument
  */
 export const postEleganceBattleArgument = async (id: number,
     postEleganceBattleArgumentInput: PostEleganceBattleArgumentInput, options?: RequestInit): Promise<MathBattleArgument> => {
@@ -9488,7 +9561,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PostEleganceBattleArgumentMutationError = ErrorType<void>
 
     /**
- * @summary Post a step justification argument in an elegance battle
+ * @summary Post a step argument
  */
 export const usePostEleganceBattleArgument = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof postEleganceBattleArgument>>, TError,{id: number;data: BodyType<PostEleganceBattleArgumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -9511,7 +9584,7 @@ export const getVoteEleganceBattleArgumentUrl = (id: number,
 }
 
 /**
- * @summary Up/downvote a step justification argument (toggle)
+ * @summary Toggle an argument vote
  */
 export const voteEleganceBattleArgument = async (id: number,
     argId: number,
@@ -9562,7 +9635,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type VoteEleganceBattleArgumentMutationError = ErrorType<void>
 
     /**
- * @summary Up/downvote a step justification argument (toggle)
+ * @summary Toggle an argument vote
  */
 export const useVoteEleganceBattleArgument = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voteEleganceBattleArgument>>, TError,{id: number;argId: number;data: BodyType<VoteEleganceBattleArgumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -9584,7 +9657,7 @@ export const getConcludeEleganceBattleUrl = (id: number,) => {
 }
 
 /**
- * @summary Conclude an elegance battle with a verdict (moderator/admin only)
+ * @summary Conclude an elegance battle
  */
 export const concludeEleganceBattle = async (id: number,
     concludeEleganceBattleInput: ConcludeEleganceBattleInput, options?: RequestInit): Promise<ConcludeEleganceBattle200> => {
@@ -9634,7 +9707,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ConcludeEleganceBattleMutationError = ErrorType<void>
 
     /**
- * @summary Conclude an elegance battle with a verdict (moderator/admin only)
+ * @summary Conclude an elegance battle
  */
 export const useConcludeEleganceBattle = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof concludeEleganceBattle>>, TError,{id: number;data: BodyType<ConcludeEleganceBattleInput>}, TContext>, request?: SecondParameter<typeof customFetch>}

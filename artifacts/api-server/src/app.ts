@@ -11,7 +11,7 @@ import { logger } from "./lib/logger";
 import { auth, betterAuthHandler } from "./lib/better-auth";
 import { fromNodeHeaders } from "better-auth/node";
 import router from "./routes";
-import { collectTrustedOrigins, normalizeOrigin, resolveTrustedFrontendUrl as resolveTrustedUrl } from "./lib/security-policy";
+import { collectTrustedOrigins, normalizeOrigin, resolveTrustedCallbackUrl as resolveTrustedUrl } from "./lib/security-policy";
 
 const app: Express = express();
 
@@ -91,6 +91,14 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", ts: Date.now() });
 });
 
+function oauthErrorRedirect(callbackURL: string, error: string): string {
+  const target = new URL(callbackURL);
+  target.pathname = "/sign-in";
+  target.searchParams.set("error", error);
+  target.hash = "";
+  return target.toString();
+}
+
 // ── Google OAuth first-party redirect ────────────────────────────────────────
 // The frontend navigates here via window.location.href (top-level navigation)
 // with ?provider=google&callbackURL=https://thetreffin.com.
@@ -110,7 +118,7 @@ app.get("/api/auth/signin/social", async (req, res) => {
   const callbackURL = resolveTrustedUrl(req.query.callbackURL, process.env.FRONTEND_URL ?? allowedOrigins[0] ?? "http://localhost:3000", allowedOrigins);
 
   if (provider !== "google" || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return res.redirect(`${callbackURL}/sign-in?error=OAuthSignin`);
+    return res.redirect(oauthErrorRedirect(callbackURL, "OAuthSignin"));
   }
 
   try {
@@ -142,17 +150,17 @@ app.get("/api/auth/signin/social", async (req, res) => {
     try {
       const body = JSON.parse(text) as { url?: string; error?: string };
       if (body.url) return res.redirect(body.url);
-      const errMsg = encodeURIComponent(body.error ?? "OAuthSignin");
+
       logger.error({ body, status: response.status }, "Better Auth returned no OAuth URL");
-      return res.redirect(`${callbackURL}/sign-in?error=${errMsg}`);
+      return res.redirect(oauthErrorRedirect(callbackURL, body.error ?? "OAuthSignin"));
     } catch {
       logger.error({ text, status: response.status }, "Better Auth response not JSON");
-      return res.redirect(`${callbackURL}/sign-in?error=OAuthSignin`);
+      return res.redirect(oauthErrorRedirect(callbackURL, "OAuthSignin"));
     }
   } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
+
     logger.error({ err }, "Social OAuth initiation error");
-    return res.redirect(`${callbackURL}/sign-in?error=${encodeURIComponent(detail)}`);
+    return res.redirect(oauthErrorRedirect(callbackURL, "OAuthSignin"));
   }
 });
 

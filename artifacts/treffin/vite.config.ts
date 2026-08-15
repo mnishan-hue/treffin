@@ -52,6 +52,8 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    // Lets the service worker cache every hashed entry and lazy route chunk.
+    manifest: 'asset-manifest.json',
   },
   server: {
     port,

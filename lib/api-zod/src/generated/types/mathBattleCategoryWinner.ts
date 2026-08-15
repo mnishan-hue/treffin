@@ -6,10 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-/**
- * @nullable
- */
-export type MathBattleCategoriesMostEfficient = {
+export interface MathBattleCategoryWinner {
   solutionId?: number;
+  votes?: number;
   stepCount?: number;
-} | null;
+}

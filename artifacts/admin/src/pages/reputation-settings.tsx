@@ -11,6 +11,9 @@ interface UpdateResult {
   ok: boolean;
   threshold: number;
   notified: number;
+  notificationWarning?: boolean;
+  titlesRecalculated?: boolean;
+  unchanged?: boolean;
 }
 
 const TIERS = (elite: number) => [
@@ -26,7 +29,7 @@ export default function ReputationSettings() {
   const [input, setInput] = useState("");
   const [confirming, setConfirming] = useState(false);
 
-  const { data, isLoading } = useQuery<ThresholdData>({
+  const { data, isLoading, isFetching, error, refetch } = useQuery<ThresholdData>({
     queryKey: ["elite-threshold"],
     queryFn: () => api.get<ThresholdData>("/admin/settings/elite-threshold"),
   });
@@ -35,12 +38,18 @@ export default function ReputationSettings() {
     mutationFn: (threshold) =>
       api.put<UpdateResult>("/admin/settings/elite-threshold", { threshold }),
     onSuccess: (result) => {
-      toast.success(
-        `Threshold updated to ${result.threshold.toLocaleString()} rep — ${result.notified} user${result.notified !== 1 ? "s" : ""} notified.`
-      );
+      qc.setQueryData<ThresholdData>(["elite-threshold"], { threshold: result.threshold });
+      if (result.notificationWarning) {
+        toast.warning("Threshold and user titles were updated, but some announcements could not be delivered.");
+      } else if (result.unchanged) {
+        toast.info("The threshold was already set to that value.");
+      } else {
+        toast.success(
+          `Threshold updated to ${result.threshold.toLocaleString()} rep â€” titles recalculated and ${result.notified} user${result.notified !== 1 ? "s" : ""} notified.`
+        );
+      }
       setInput("");
       setConfirming(false);
-      qc.invalidateQueries({ queryKey: ["elite-threshold"] });
     },
     onError: (err) => {
       toast.error(err.message ?? "Failed to update threshold");
@@ -49,8 +58,9 @@ export default function ReputationSettings() {
   });
 
   const currentThreshold = data?.threshold ?? 1000;
-  const parsedInput = parseInt(input.replace(/,/g, ""), 10);
-  const isValid = !isNaN(parsedInput) && parsedInput >= 1 && parsedInput <= 1_000_000;
+  const normalizedInput = input.trim();
+  const parsedInput = /^\d+$/.test(normalizedInput) ? Number(normalizedInput) : Number.NaN;
+  const isValid = Number.isSafeInteger(parsedInput) && parsedInput >= 1 && parsedInput <= 1_000_000;
   const preview = isValid ? parsedInput : currentThreshold;
   const changed = isValid && parsedInput !== currentThreshold;
 
@@ -60,6 +70,25 @@ export default function ReputationSettings() {
     mutation.mutate(parsedInput);
   };
 
+  if (error && !data) {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 space-y-3">
+        <h1 className="text-xl font-bold text-foreground">Reputation Settings</h1>
+        <p className="text-sm text-destructive">{error.message}</p>
+        <p className="text-xs text-muted-foreground">
+          If this mentions the database migration, apply the latest migration and redeploy the API.
+        </p>
+        <button
+          type="button"
+          disabled={isFetching}
+          onClick={() => void refetch()}
+          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm disabled:opacity-50"
+        >
+          {isFetching ? "Retryingâ€¦" : "Retry"}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="space-y-6">
       {/* Header */}

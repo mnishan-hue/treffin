@@ -13,7 +13,7 @@ import { IntellectualDnaChart } from "@/components/intellectual-dna-chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAppContext } from "@/context/app-context";
 import { useToast } from "@/hooks/use-toast";
-import { getApiUrl } from "@/lib/api-url";
+import { authenticatedFetch, getApiUrl } from "@/lib/api-url";
 
 const LEVELS = [
   { name: "Novice",        min: 0,    max: 99,   color: "text-slate-400",  bg: "bg-slate-400",  border: "border-slate-400/30",  glow: "" },
@@ -514,7 +514,7 @@ function OwnProfile() {
 
   async function handleDeleteArticle(id: number) {
     try {
-      const res = await fetch(getApiUrl(`/api/articles/${id}`), {
+      const res = await authenticatedFetch(`/api/articles/${id}`, {
         method: "DELETE",
         credentials: "include",
       });
@@ -586,7 +586,7 @@ function OwnProfile() {
   const interests = Array.from(draftInterests).map(id => INTEREST_MAP[id] ?? id);
 
   const updateProfile = async (data: { name?: string; bio?: string }) => {
-    const response = await fetch(getApiUrl("/api/users/me"), {
+    const response = await authenticatedFetch("/api/users/me", {
       method: "PUT",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -630,7 +630,7 @@ function OwnProfile() {
       return;
     }
     try {
-      const response = await fetch(getApiUrl("/api/users/me/interests"), {
+      const response = await authenticatedFetch("/api/users/me/interests", {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

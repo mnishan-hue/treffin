@@ -6,6 +6,7 @@ import { eq, desc, and, inArray, gte, sql } from "drizzle-orm";
 import { reputationEventsTable } from "@workspace/db";
 import { sendWelcomeEmail } from "../lib/email";
 import { jitProvisionUser } from "../lib/jit-provision";
+import { normalizeUserProfileUpdate } from "../lib/security-policy";
 
 const router = Router();
 
@@ -543,12 +544,12 @@ router.put("/users/me", async (req, res) => {
     return;
   }
 
-  const { name, title, bio, avatarUrl } = req.body as {
-    name?: string;
-    title?: string;
-    bio?: string;
-    avatarUrl?: string;
-  };
+  const parsed = normalizeUserProfileUpdate(req.body);
+  if (!parsed.ok) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const { name, title, bio, avatarUrl } = parsed.value;
 
   try {
     const [existing] = await db
@@ -559,8 +560,8 @@ router.put("/users/me", async (req, res) => {
 
     if (existing) {
       const updates: Partial<typeof usersTable.$inferInsert> = {};
-      if (name) updates.name = name;
-      if (title) updates.title = title;
+      if (name !== undefined) updates.name = name;
+      if (title !== undefined) updates.title = title;
       if (bio !== undefined) updates.bio = bio;
       if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
 

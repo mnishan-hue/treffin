@@ -2,8 +2,9 @@
   "name": "Treffin — Where Minds Celebrate",
   "short_name": "Treffin",
   "description": "The intellectual platform for students and thinkers. Debate live, publish articles, join communities, and build your reputation.",
-  "start_url": "/",
-  "scope": "/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0a0a1a",
   "theme_color": "#7c3aed",
@@ -11,29 +12,22 @@
   "categories": ["social", "education", "news"],
   "icons": [
     {
-      "src": "/treffin-mark.png",
+      "src": "./pwa-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/treffin-mark.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/treffin-mark.png",
+      "src": "./pwa-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/treffin-mark.png",
+      "src": "./pwa-maskable-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
     }
-  ],
-  "screenshots": []
+  ]
 }

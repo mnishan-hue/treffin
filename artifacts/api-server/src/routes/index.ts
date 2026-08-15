@@ -7,7 +7,7 @@ import usersRouter from "./users";
 import topicsRouter from "./topics";
 import statsRouter from "./stats";
 import communitiesRouter from "./communities";
-import reputationRouter, { loadEliteThreshold } from "./reputation";
+import reputationRouter from "./reputation";
 import analyticsRouter from "./analytics";
 import adminRouter from "./admin";
 import notificationsRouter from "./notifications";
@@ -31,9 +31,6 @@ router.use(topicsRouter);
 router.use(statsRouter);
 router.use(communitiesRouter);
 router.use(reputationRouter);
-// Load the Elite Thinker threshold from DB into the in-memory cache once at
-// startup so titleForScore() is always consistent with the admin-set value.
-loadEliteThreshold().catch(() => {/* safe to ignore — falls back to default */});
 router.use(analyticsRouter);
 router.use(adminRouter);
 router.use(notificationsRouter);

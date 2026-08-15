@@ -47,7 +47,7 @@ import { useToast } from "@/hooks/use-toast";
 import { PostCard } from "@/components/feed/post-card";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "@/lib/auth-client";
-import { getApiUrl } from "@/lib/api-url";
+import { authenticatedFetch } from "@/lib/api-url";
 
 const DEFAULT_RULES = [
   "Be respectful and constructive",
@@ -108,7 +108,7 @@ export default function CommunityRoom() {
   const denyMutation = useDenyCommunityJoinRequest();
   const transferMutation = useMutation({
     mutationFn: async ({ userId }: { userId: number }) => {
-      const response = await fetch(getApiUrl(`/api/communities/${communityId}/transfer-ownership`), {
+      const response = await authenticatedFetch(`/api/communities/${communityId}/transfer-ownership`, {
         method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId }),
       });
       if (!response.ok) throw { data: await response.json().catch(() => ({})) };

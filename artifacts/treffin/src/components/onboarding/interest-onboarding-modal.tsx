@@ -24,7 +24,7 @@ interface Props {
 
 export function InterestOnboardingModal({ onDone, onSkip }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const { isSignedIn } = useSession();
+  const { isSignedIn, user } = useSession();
   const { mutate: saveInterests } = useUpdateUserInterests();
 
   const toggle = (name: string) => {
@@ -38,7 +38,8 @@ export function InterestOnboardingModal({ onDone, onSkip }: Props) {
   const handleConfirm = () => {
     if (selected.size < 3) return;
     const list = Array.from(selected);
-    localStorage.setItem(INTERESTS_STORAGE_KEY, JSON.stringify(list));
+    const storageKey = user?.id ? `${INTERESTS_STORAGE_KEY}_${user.id}` : INTERESTS_STORAGE_KEY;
+    localStorage.setItem(storageKey, JSON.stringify(list));
 
     if (isSignedIn) {
       saveInterests({ data: { interests: list } });

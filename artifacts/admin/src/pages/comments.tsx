@@ -23,24 +23,36 @@ export default function Comments() {
     setLoading(true);
     api.get<AdminComment[]>("/admin/comments")
       .then(setComments)
+      .catch(() => {})
       .finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, []);
 
   const handleDelete = async (id: number) => {
-    await api.delete(`/admin/comments/${id}`);
-    setConfirmId(null);
-    load();
+    setBusyId(id);
+    try {
+      await api.delete(`/admin/comments/${id}`);
+      setConfirmId(null);
+      load();
+    } catch {
+      // The shared API handler displays the actionable error.
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const handleFlag = async (id: number, isFlagged: boolean, flagLabel?: string) => {
     setBusyId(id);
-    await api.patch(`/admin/comments/${id}/flag`, { isFlagged, flagLabel: flagLabel ?? null });
-    setBusyId(null);
-    load();
+    try {
+      await api.patch(`/admin/comments/${id}/flag`, { isFlagged, flagLabel: flagLabel ?? null });
+      load();
+    } catch {
+      // The shared API handler displays the actionable error.
+    } finally {
+      setBusyId(null);
+    }
   };
-
   if (loading) return <div className="text-muted-foreground py-8 text-center">Loading…</div>;
 
   return (

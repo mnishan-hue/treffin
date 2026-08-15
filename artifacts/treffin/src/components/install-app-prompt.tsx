@@ -72,11 +72,12 @@ export function InstallAppPrompt() {
   useEffect(() => () => { if (exitTimer.current) clearTimeout(exitTimer.current); }, []);
 
   const handleInstall = async () => {
-    localStorage.setItem(DISMISSED_KEY, "asked");
     const accepted = await install();
-    if (accepted) dismiss(false);
+    if (accepted) {
+      localStorage.setItem(DISMISSED_KEY, "installed");
+      dismiss(false);
+    }
   };
-
   if (!ready && !leaving) return null;
 
   return (

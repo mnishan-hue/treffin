@@ -6,9 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type MathBattleSolutionVotes = {
+export interface MathBattleSolutionVotes {
   elegant: number;
   clear: number;
   rigorous: number;
   efficient: number;
-};
+}

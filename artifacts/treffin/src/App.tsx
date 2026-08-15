@@ -13,13 +13,12 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { OfflineIndicator } from "@/components/offline-indicator";
 import { UpdatePrompt } from "@/components/update-prompt";
 import { BannerQueue } from "@/components/banner-queue";
-import { PushNotificationPrompt } from "@/components/push-notification-prompt";
-import { InstallAppPrompt } from "@/components/install-app-prompt";
 import { CookieBanner } from "@/components/cookie-banner";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { ProfileGuestView } from "@/components/profile-guest-view";
 import { authClient, getToken, useSession } from "@/lib/auth-client";
 import { SessionProvider } from "@/lib/session-provider";
+import { signInPathFor } from "@/lib/auth-navigation";
 
 import { MathLayout } from "@/components/math/math-layout";
 
@@ -144,8 +143,9 @@ function HomeRedirect() {
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { isSignedIn, isLoaded } = useSession();
-  if (!isLoaded) return null;
-  if (!isSignedIn) return <Redirect to="/sign-in" />;
+  const [location] = useLocation();
+  if (!isLoaded) return <RouteLoadingFallback />;
+  if (!isSignedIn) return <Redirect to={signInPathFor(location)} />;
   return <>{children}</>;
 }
 
@@ -263,8 +263,6 @@ function App() {
                 <Toaster />
                 <OfflineIndicator />
                 <BannerQueue />
-                <PushNotificationPrompt />
-                <InstallAppPrompt />
                 <CookieBanner />
                 <WelcomeModal />
               </TooltipProvider>

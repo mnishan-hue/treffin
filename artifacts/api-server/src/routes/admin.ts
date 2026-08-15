@@ -37,7 +37,8 @@ import {
 import { eq, desc, sql, and, gte, isNull, inArray } from "drizzle-orm";
 import { createNotification, notifyUser } from "../lib/notify";
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
-import { awardRep, getEliteThreshold, setEliteThreshold } from "./reputation";
+import { awardRep, loadEliteThreshold, setEliteThreshold } from "./reputation";
+import { ELITE_THRESHOLD_SETTING_KEY, parseEliteThreshold } from "../lib/reputation-settings";
 import { sendPushToAll } from "../lib/push";
 import bcrypt from "bcryptjs";
 import { destructiveDbToolsEnabled } from "../lib/security-policy";
@@ -250,6 +251,7 @@ router.get("/admin/debates", async (req, res) => {
       creatorIsModerator: d.creatorIsModerator ?? false,
       winnerAuthority: (d.winnerAuthority as "creator" | "admin") ?? "creator",
       winnerStatus: (d.winnerStatus as "undecided" | "creator_declared" | "pending_admin" | "admin_decided") ?? "undecided",
+      mathProblemId: d.mathProblemId ?? null,
     })));
   } catch (err) {
     req.log.error({ err }, "Failed to get admin debates");
@@ -347,6 +349,8 @@ router.post("/admin/debates/:id/outcome", async (req, res) => {
         isLive: false,
         endedAt: debate.endedAt ?? now,
         winnerStatus: "admin_decided",
+        verdictText: debate.mathProblemId ? cleanJustification : debate.verdictText,
+        verdictByUserId: debate.mathProblemId ? "admin" : debate.verdictByUserId,
       }).where(eq(debatesTable.id, debateId));
       await tx.insert(modAuditLogTable).values({
         action: existing ? "admin_update_outcome" : "admin_publish_outcome",
@@ -1004,46 +1008,6 @@ router.patch("/admin/users/:id/suspend", async (req, res) => {
   }
 });
 
-// ── Delete single user ───────────────────────────────────────────────────────
-router.delete("/admin/users/:id", async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
-    if (!user) { res.status(404).json({ error: "User not found" }); return; }
-
-    // Remove related data — best-effort, non-blocking
-    const userIdentity = user.betterAuthId ?? user.clerkId;
-    await Promise.allSettled([
-      db.delete(postsTable).where(eq(postsTable.authorId, id)),
-      userIdentity
-        ? db.delete(reputationEventsTable).where(eq(reputationEventsTable.userId, userIdentity))
-        : Promise.resolve(),
-      userIdentity
-        ? db.delete(notificationsTable).where(eq(notificationsTable.userId, userIdentity))
-        : Promise.resolve(),
-      user.betterAuthId
-        ? db.delete(baUser).where(eq(baUser.id, user.betterAuthId))
-        : Promise.resolve(),
-    ]);
-
-    await db.delete(usersTable).where(eq(usersTable.id, id));
-
-    await db.insert(modAuditLogTable).values({
-      action: "admin_delete_user",
-      targetType: "user",
-      targetId: id,
-      reason: `Admin permanently deleted user "${user.name}" (id: ${id})`,
-    });
-
-    res.json({ ok: true });
-  } catch (err) {
-    req.log.error({ err }, "Failed to delete user");
-    res.status(500).json({ error: "Failed to delete user" });
-  }
-});
-
 // ── Delete all sample / seed users (those with no betterAuthId) ──────────────
 router.delete("/admin/users/sample", async (req, res) => {
   try {
@@ -1083,6 +1047,46 @@ router.delete("/admin/users/sample", async (req, res) => {
   } catch (err) {
     req.log.error({ err }, "Failed to delete sample users");
     res.status(500).json({ error: "Failed to delete sample users" });
+  }
+});
+
+// ── Delete single user ───────────────────────────────────────────────────────
+router.delete("/admin/users/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!user) { res.status(404).json({ error: "User not found" }); return; }
+
+    // Remove related data — best-effort, non-blocking
+    const userIdentity = user.betterAuthId ?? user.clerkId;
+    await Promise.allSettled([
+      db.delete(postsTable).where(eq(postsTable.authorId, id)),
+      userIdentity
+        ? db.delete(reputationEventsTable).where(eq(reputationEventsTable.userId, userIdentity))
+        : Promise.resolve(),
+      userIdentity
+        ? db.delete(notificationsTable).where(eq(notificationsTable.userId, userIdentity))
+        : Promise.resolve(),
+      user.betterAuthId
+        ? db.delete(baUser).where(eq(baUser.id, user.betterAuthId))
+        : Promise.resolve(),
+    ]);
+
+    await db.delete(usersTable).where(eq(usersTable.id, id));
+
+    await db.insert(modAuditLogTable).values({
+      action: "admin_delete_user",
+      targetType: "user",
+      targetId: id,
+      reason: `Admin permanently deleted user "${user.name}" (id: ${id})`,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    req.log.error({ err }, "Failed to delete user");
+    res.status(500).json({ error: "Failed to delete user" });
   }
 });
 
@@ -2330,76 +2334,103 @@ router.delete("/admin/debates/:debateId/arguments/:commentId", async (req, res) 
 
 // ── Elite Thinker threshold settings ────────────────────────────────────────
 
-router.get("/admin/settings/elite-threshold", async (_req, res) => {
-  res.json({ threshold: getEliteThreshold() });
+router.get("/admin/settings/elite-threshold", async (req, res) => {
+  try {
+    const threshold = await loadEliteThreshold();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ threshold });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load Elite Thinker threshold");
+    res.status(500).json({ error: "Reputation settings are unavailable. Apply the latest database migration." });
+  }
 });
 
 router.put("/admin/settings/elite-threshold", async (req, res) => {
-  const raw = req.body?.threshold;
-  const threshold = typeof raw === "number" ? raw : parseInt(raw, 10);
-  if (!threshold || isNaN(threshold) || threshold < 1 || threshold > 1_000_000) {
+  const threshold = parseEliteThreshold(req.body?.threshold);
+  if (threshold === null) {
     res.status(400).json({ error: "threshold must be a whole number between 1 and 1,000,000" });
     return;
   }
 
-  const oldThreshold = getEliteThreshold();
-
   try {
-    // 1. Persist to DB (upsert)
-    await db
-      .insert(appSettingsTable)
-      .values({ key: "elite_thinker_threshold", value: String(threshold), updatedBy: "admin" })
-      .onConflictDoUpdate({
-        target: appSettingsTable.key,
-        set: { value: String(threshold), updatedAt: new Date(), updatedBy: "admin" },
-      });
-
-    // 2. Update in-memory cache so titleForScore() is immediately consistent
-    setEliteThreshold(threshold);
-
-    // 3. Audit log
-    await db.insert(modAuditLogTable).values({
-      action: "update_elite_threshold",
-      targetType: "setting",
-      targetId: 0,
-      reason: `Elite Thinker threshold changed ${oldThreshold.toLocaleString()} → ${threshold.toLocaleString()} rep`,
-    });
-
-    // 4. Broadcast in-app notification to every user
-    const title = "🏆 Elite Thinker Threshold Updated";
-    const body = `The Elite Thinker reputation threshold is now ${threshold.toLocaleString()} rep. Keep contributing to reach the top!`;
-
-    const allUsers = (await db.select({ betterAuthId: usersTable.betterAuthId }).from(usersTable)).filter((u): u is { betterAuthId: string } => !!u.betterAuthId);
-    if (allUsers.length > 0) {
-      // Insert in chunks of 500 to avoid hitting Postgres parameter limits
-      const CHUNK = 500;
-      for (let i = 0; i < allUsers.length; i += CHUNK) {
-        await db.insert(notificationsTable).values(
-          allUsers.slice(i, i + CHUNK).map((u) => ({
-            userId: u.betterAuthId,
-            type: "system_announcement",
-            title,
-            body,
-            actorName: "Treffin",
-            actorInitials: "TR",
-            count: 1,
-            batchKey: `elite_threshold_${Date.now()}`,
-          }))
-        );
-      }
+    const oldThreshold = await loadEliteThreshold();
+    if (oldThreshold === threshold) {
+      res.json({ ok: true, threshold, notified: 0, unchanged: true });
+      return;
     }
 
-    // 5. Web push broadcast (best-effort, non-blocking)
-    void sendPushToAll({ title, body, url: "/notifications", tag: "elite_threshold" }, req.log);
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(appSettingsTable)
+        .values({ key: ELITE_THRESHOLD_SETTING_KEY, value: String(threshold), updatedBy: "admin" })
+        .onConflictDoUpdate({
+          target: appSettingsTable.key,
+          set: { value: String(threshold), updatedAt: new Date(), updatedBy: "admin" },
+        });
 
-    res.json({ ok: true, threshold, notified: allUsers.length });
+      // Existing titles are denormalized, so a threshold change must recalculate
+      // every profile rather than waiting for each user's next reputation event.
+      await tx.update(usersTable).set({
+        title: sql<string>`CASE
+          WHEN ${usersTable.reputationScore} >= ${threshold} THEN 'Elite Thinker'
+          WHEN ${usersTable.reputationScore} >= ${Math.floor(threshold * 0.6)} THEN 'Intellectual'
+          WHEN ${usersTable.reputationScore} >= ${Math.floor(threshold * 0.3)} THEN 'Scholar'
+          WHEN ${usersTable.reputationScore} >= ${Math.floor(threshold * 0.1)} THEN 'Thinker'
+          ELSE 'Novice'
+        END`,
+      });
+
+      await tx.insert(modAuditLogTable).values({
+        action: "update_elite_threshold",
+        targetType: "setting",
+        targetId: 0,
+        reason: `Elite Thinker threshold changed ${oldThreshold.toLocaleString()} -> ${threshold.toLocaleString()} rep`,
+      });
+    });
+
+    // Update memory only after the transaction commits successfully.
+    setEliteThreshold(threshold);
+
+    const title = "Elite Thinker Threshold Updated";
+    const body = `The Elite Thinker reputation threshold is now ${threshold.toLocaleString()} rep. Keep contributing to reach the top!`;
+    let notified = 0;
+    let notificationWarning = false;
+
+    // Announcement delivery is best-effort and must not make a committed setting
+    // appear to have failed. Insert in bounded chunks for large user tables.
+    try {
+      const allUsers = (await db.select({ betterAuthId: usersTable.betterAuthId }).from(usersTable))
+        .filter((user): user is { betterAuthId: string } => Boolean(user.betterAuthId));
+      const batchKey = `elite_threshold_${Date.now()}`;
+      const chunkSize = 500;
+      for (let i = 0; i < allUsers.length; i += chunkSize) {
+        const chunk = allUsers.slice(i, i + chunkSize);
+        await db.insert(notificationsTable).values(chunk.map((user) => ({
+          userId: user.betterAuthId,
+          type: "system_announcement",
+          title,
+          body,
+          actorName: "Treffin",
+          actorInitials: "TR",
+          count: 1,
+          batchKey,
+        })));
+        notified += chunk.length;
+      }
+    } catch (err) {
+      notificationWarning = true;
+      req.log.warn({ err }, "Threshold changed, but user announcements were not fully delivered");
+    }
+
+    void sendPushToAll({ title, body, url: "/notifications", tag: "elite_threshold" }, req.log);
+    res.json({ ok: true, threshold, notified, titlesRecalculated: true, notificationWarning });
   } catch (err) {
-    req.log.error({ err }, "Failed to update elite threshold");
-    res.status(500).json({ error: "Failed to update threshold" });
+    req.log.error({ err }, "Failed to update Elite Thinker threshold");
+    res.status(500).json({ error: "Failed to update threshold. Verify that the latest database migration is applied." });
   }
 });
 
-// ── Admin notification counts ────────────────────────────────────────────────
+// Admin notification counts
 router.get("/admin/notifications/counts", async (req, res) => {
   try {
     const [appeals, reviews, creatorReports] = await Promise.all([
