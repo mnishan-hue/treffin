@@ -785,7 +785,9 @@ router.get("/debates/:id/outcome", async (req, res) => {
       .limit(1);
 
     if (!outcome) {
-      res.status(404).json({ error: "No outcome found" }); return;
+      // A closed debate can legitimately be waiting for a decision. Treat that
+      // as an empty result so polling clients do not log a repeated 404.
+      res.json(null); return;
     }
 
     res.json({

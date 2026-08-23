@@ -575,6 +575,14 @@ export interface ReputationSummary {
   recentEvents: ReputationEvent[];
 }
 
+export interface ReputationSettings {
+  /**
+     * @minimum 1
+     * @maximum 1000000
+     */
+  eliteThreshold: number;
+}
+
 export type RepAwardInputEventType = typeof RepAwardInputEventType[keyof typeof RepAwardInputEventType];
 
 
@@ -1013,7 +1021,6 @@ export interface DebateCommentInput {
 
 export interface UserSyncInput {
   name: string;
-  title?: string;
   bio?: string;
   /** @nullable */
   avatarUrl?: string | null;

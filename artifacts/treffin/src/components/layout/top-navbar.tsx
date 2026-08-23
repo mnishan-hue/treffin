@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User, Settings } from "lucide-react";
-import { useGlobalSearch, getGlobalSearchQueryKey, useGetNotifications, getGetNotificationsQueryOptions, getGetNotificationsQueryKey } from "@workspace/api-client-react";
+import { useGlobalSearch, getGlobalSearchQueryKey, getGetNotificationsQueryOptions, getGetNotificationsQueryKey, useGetCurrentUser, getGetCurrentUserQueryKey } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/context/theme-context";
@@ -201,6 +201,15 @@ export function TopNavbar() {
 
   const queryClient = useQueryClient();
   const { data: notifications } = useQuery({ ...getGetNotificationsQueryOptions(), refetchInterval: 15_000, enabled: !!isSignedIn });
+  const { data: currentUser } = useGetCurrentUser({
+    query: {
+      enabled: !!isSignedIn,
+      queryKey: getGetCurrentUserQueryKey(),
+      staleTime: 15_000,
+      refetchInterval: 30_000,
+      refetchOnWindowFocus: true,
+    },
+  });
   const unreadCount = (notifications ?? []).filter((n) => !n.read).length;
 
   // Refresh notifications immediately when the tab regains focus
@@ -294,7 +303,7 @@ export function TopNavbar() {
                   </Avatar>
                   <div className="hidden sm:flex flex-col items-start">
                     <span className="text-sm font-semibold leading-none">{displayName}</span>
-                    <span className="text-[10px] treffin-gradient-text font-semibold mt-0.5">Thinker</span>
+                    <span data-testid="navbar-user-rank" className="text-[10px] treffin-gradient-text font-semibold mt-0.5">{currentUser?.title ?? "Novice"}</span>
                   </div>
                 </button>
               </DropdownMenuTrigger>

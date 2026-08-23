@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { useGetTrendingDebates, useGetTopThinkers, getGetTopThinkersQueryKey } from "@workspace/api-client-react";
+import { useGetTrendingDebates, useGetTopThinkers, getGetTopThinkersQueryKey, useGetReputationSettings, getGetReputationSettingsQueryKey } from "@workspace/api-client-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { formatNumber } from "@/lib/utils";
@@ -48,12 +48,38 @@ export function SidebarRight() {
         queryKey: getGetTopThinkersQueryKey({ period: "this_week" }),
         refetchInterval: 60_000,
         staleTime: 30_000,
+        refetchOnWindowFocus: true,
       },
     },
   );
   const thinkerList = React.useMemo(() => Array.isArray(topThinkers) ? topThinkers : [], [topThinkers]);
 
   /* ── Math-specific sidebar ── */
+  const { data: allTimeThinkers } = useGetTopThinkers(
+    { period: "all_time" },
+    {
+      query: {
+        queryKey: getGetTopThinkersQueryKey({ period: "all_time" }),
+        refetchInterval: 30_000,
+        staleTime: 15_000,
+        refetchOnWindowFocus: true,
+      },
+    },
+  );
+  const allTimeThinkerList = React.useMemo(
+    () => Array.isArray(allTimeThinkers) ? allTimeThinkers : [],
+    [allTimeThinkers],
+  );
+  const { data: reputationSettings } = useGetReputationSettings({
+    query: {
+      queryKey: getGetReputationSettingsQueryKey(),
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+      refetchOnWindowFocus: true,
+    },
+  });
+  const eliteThreshold = reputationSettings?.eliteThreshold ?? 1000;
+  const eliteThresholdLabel = eliteThreshold.toLocaleString();
   if (isMathPage) {
     return (
       <div className="flex flex-col gap-4">
@@ -193,7 +219,7 @@ export function SidebarRight() {
 
       {/* Elite Thinkers */}
       {(() => {
-        const elites = thinkerList.filter(t => t.reputationScore >= 1000);
+        const elites = allTimeThinkerList.filter(t => t.reputationScore >= eliteThreshold);
         return (
           <div className="relative overflow-hidden rounded-xl border border-yellow-500/25 bg-gradient-to-br from-yellow-950/50 via-amber-950/30 to-card p-4 flex flex-col gap-3">
             <div className="flex items-center justify-between">
@@ -201,17 +227,17 @@ export function SidebarRight() {
                 <Crown className="w-3.5 h-3.5 text-yellow-400" />
                 <h2 className="text-[13px] font-bold text-yellow-200">Elite Thinkers</h2>
               </div>
-              <div className="flex items-center gap-1 text-[10px] font-bold text-yellow-500/80 uppercase tracking-widest">
-                <Lock className="w-2.5 h-2.5" /> 1k+ rep
+              <div data-testid="elite-threshold-label" className="flex items-center gap-1 text-[10px] font-bold text-yellow-500/80 uppercase tracking-widest">
+                <Lock className="w-2.5 h-2.5" /> {eliteThresholdLabel}+ rep
               </div>
             </div>
             <p className="text-[11px] text-muted-foreground leading-relaxed -mt-1">
-              Exclusive tier for 1,000+ rep users. Earn your place through consistent contributions.
+              Exclusive tier for {eliteThresholdLabel}+ rep users. Earn your place through consistent contributions.
             </p>
             {elites.length === 0 ? (
               <div className="flex flex-col items-center gap-1.5 py-3">
                 <Crown className="w-6 h-6 text-yellow-400/30" />
-                <p className="text-[11px] text-muted-foreground text-center">No Elite Thinkers yet. Be the first to reach 1,000 rep!</p>
+                <p className="text-[11px] text-muted-foreground text-center">No Elite Thinkers yet. Be the first to reach {eliteThresholdLabel} rep!</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2">

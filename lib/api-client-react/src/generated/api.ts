@@ -139,6 +139,7 @@ import type {
   RemoveMathBookmark200,
   RepAwardInput,
   ReportCreatorInput,
+  ReputationSettings,
   ReputationSummary,
   ResolveCreatorReportInput,
   ReviewRequestAction,
@@ -3722,6 +3723,83 @@ export function useGetReputation<TData = Awaited<ReturnType<typeof getReputation
 
 
 
+export const getGetReputationSettingsUrl = () => {
+
+
+
+
+  return `/api/reputation/settings`
+}
+
+/**
+ * @summary Get public reputation tier settings
+ */
+export const getReputationSettings = async ( options?: RequestInit): Promise<ReputationSettings> => {
+
+  return customFetch<ReputationSettings>(getGetReputationSettingsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetReputationSettingsQueryKey = () => {
+    return [
+    `/api/reputation/settings`
+    ] as const;
+    }
+
+
+export const getGetReputationSettingsQueryOptions = <TData = Awaited<ReturnType<typeof getReputationSettings>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReputationSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetReputationSettingsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getReputationSettings>>> = ({ signal }) => getReputationSettings({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getReputationSettings>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetReputationSettingsQueryResult = NonNullable<Awaited<ReturnType<typeof getReputationSettings>>>
+export type GetReputationSettingsQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get public reputation tier settings
+ */
+
+export function useGetReputationSettings<TData = Awaited<ReturnType<typeof getReputationSettings>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getReputationSettings>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetReputationSettingsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getAwardReputationUrl = () => {
 
 
@@ -5048,9 +5126,9 @@ export const getGetDebateOutcomeUrl = (id: number,) => {
 /**
  * @summary Get published outcome for a debate
  */
-export const getDebateOutcome = async (id: number, options?: RequestInit): Promise<DebateOutcome> => {
+export const getDebateOutcome = async (id: number, options?: RequestInit): Promise<DebateOutcome | null> => {
 
-  return customFetch<DebateOutcome>(getGetDebateOutcomeUrl(id),
+  return customFetch<DebateOutcome | null>(getGetDebateOutcomeUrl(id),
   {
     ...options,
     method: 'GET'
@@ -5070,7 +5148,7 @@ export const getGetDebateOutcomeQueryKey = (id: number,) => {
     }
 
 
-export const getGetDebateOutcomeQueryOptions = <TData = Awaited<ReturnType<typeof getDebateOutcome>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDebateOutcome>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetDebateOutcomeQueryOptions = <TData = Awaited<ReturnType<typeof getDebateOutcome>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDebateOutcome>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -5089,14 +5167,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetDebateOutcomeQueryResult = NonNullable<Awaited<ReturnType<typeof getDebateOutcome>>>
-export type GetDebateOutcomeQueryError = ErrorType<void>
+export type GetDebateOutcomeQueryError = ErrorType<unknown>
 
 
 /**
  * @summary Get published outcome for a debate
  */
 
-export function useGetDebateOutcome<TData = Awaited<ReturnType<typeof getDebateOutcome>>, TError = ErrorType<void>>(
+export function useGetDebateOutcome<TData = Awaited<ReturnType<typeof getDebateOutcome>>, TError = ErrorType<unknown>>(
  id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDebateOutcome>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {

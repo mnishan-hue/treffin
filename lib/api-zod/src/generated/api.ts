@@ -1214,6 +1214,18 @@ export const GetReputationResponse = zod.object({
 
 
 /**
+ * @summary Get public reputation tier settings
+ */
+export const getReputationSettingsResponseEliteThresholdMax = 1000000;
+
+
+
+export const GetReputationSettingsResponse = zod.object({
+  "eliteThreshold": zod.number().min(1).max(getReputationSettingsResponseEliteThresholdMax)
+})
+
+
+/**
  * @summary Award reputation points for an action
  */
 export const AwardReputationBody = zod.object({
@@ -1570,7 +1582,6 @@ export const GetCurrentUserResponse = zod.object({
  */
 export const SyncCurrentUserBody = zod.object({
   "name": zod.string(),
-  "title": zod.string().optional(),
   "bio": zod.string().optional(),
   "avatarUrl": zod.string().nullish()
 })
@@ -1602,7 +1613,7 @@ export const GetDebateOutcomeParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const GetDebateOutcomeResponse = zod.object({
+export const GetDebateOutcomeResponse = zod.union([zod.object({
   "id": zod.number(),
   "debateId": zod.number(),
   "winningSide": zod.enum(['support', 'against', 'draw']),
@@ -1612,7 +1623,7 @@ export const GetDebateOutcomeResponse = zod.object({
   "publishedAt": zod.string(),
   "decidedBy": zod.enum(['creator', 'admin']).optional(),
   "overrideReason": zod.string().nullish()
-})
+}),zod.null()])
 
 
 /**

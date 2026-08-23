@@ -7,6 +7,8 @@ import { reputationEventsTable } from "@workspace/db";
 import { sendWelcomeEmail } from "../lib/email";
 import { jitProvisionUser } from "../lib/jit-provision";
 import { normalizeUserProfileUpdate } from "../lib/security-policy";
+import { titleForReputation } from "../lib/reputation-settings";
+import { loadEliteThreshold } from "./reputation";
 
 const router = Router();
 
@@ -549,7 +551,7 @@ router.put("/users/me", async (req, res) => {
     res.status(400).json({ error: parsed.error });
     return;
   }
-  const { name, title, bio, avatarUrl } = parsed.value;
+  const { name, bio, avatarUrl } = parsed.value;
 
   try {
     const [existing] = await db
@@ -561,9 +563,14 @@ router.put("/users/me", async (req, res) => {
     if (existing) {
       const updates: Partial<typeof usersTable.$inferInsert> = {};
       if (name !== undefined) updates.name = name;
-      if (title !== undefined) updates.title = title;
       if (bio !== undefined) updates.bio = bio;
       if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
+
+      // Reputation titles are computed server-side. Repair legacy/client-overwritten
+      // values during sync instead of trusting a title supplied by the browser.
+      const eliteThreshold = await loadEliteThreshold();
+      const expectedTitle = titleForReputation(existing.reputationScore, eliteThreshold);
+      if (existing.title !== expectedTitle) updates.title = expectedTitle;
 
       await db.update(usersTable).set(updates).where(eq(usersTable.betterAuthId, userId));
       res.json({ ok: true, id: existing.id });
@@ -575,7 +582,7 @@ router.put("/users/me", async (req, res) => {
           // Keep legacy identity-backed relations valid for newly synced users.
           clerkId: userId,
           name: name ?? "New Thinker",
-          title: title ?? "Member",
+          title: "Novice",
           bio: bio ?? null,
           avatarUrl: avatarUrl ?? null,
         })

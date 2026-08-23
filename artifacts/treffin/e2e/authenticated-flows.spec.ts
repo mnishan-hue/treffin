@@ -19,11 +19,12 @@ async function mockAuthenticatedApi(page: Page) {
     const url = new URL(request.url());
     const path = url.pathname;
     if (path === "/api/users/me" && request.method() === "GET") {
-      return json(route, { id: 1, betterAuthId: "auth-user", name: "Test User", title: "Member", bio: "Stored bio", avatarUrl: null, interests: ["Philosophy", "Science", "History"], reputation: 12, followers: 0, following: 0, articlesPublished: 0 });
+      return json(route, { id: 1, betterAuthId: "auth-user", name: "Test User", title: "Thinker", bio: "Stored bio", avatarUrl: null, interests: ["Philosophy", "Science", "History"], reputationScore: 12, followers: 0, following: 0, articlesPublished: 0 });
     }
     if (path === "/api/users/me" && request.method() === "PUT") return json(route, { ok: true, id: 1 });
     if (path === "/api/users/me/interests" && request.method() === "PATCH") return json(route, { ok: true });
     if (path === "/api/reputation") return json(route, { total: 12, breakdown: { debates: 2, articles: 2, community: 2, votes: 2, posts: 4 }, recentEvents: [] });
+    if (path === "/api/reputation/settings") return json(route, { eliteThreshold: 1000 });
     if (path === "/api/feed") return json(route, []);
     if (path === "/api/stats/daily-question") return json(route, null);
     if (path === "/api/stats/weekly-challenge") return json(route, null);
@@ -140,7 +141,7 @@ test.describe("authenticated Treffin contracts", () => {
         updateBody = route.request().postData();
         return json(route, { ok: true, id: 1 });
       }
-      return json(route, { id: 1, betterAuthId: "auth-user", name: "Test User", title: "Member", bio: "Stored bio", avatarUrl: null, interests: ["Philosophy", "Science", "History"], reputation: 12, followers: 0, following: 0, articlesPublished: 0 });
+      return json(route, { id: 1, betterAuthId: "auth-user", name: "Test User", title: "Thinker", bio: "Stored bio", avatarUrl: null, interests: ["Philosophy", "Science", "History"], reputationScore: 12, followers: 0, following: 0, articlesPublished: 0 });
     });
     await page.goto("/profile");
     await expect(page.getByText("Stored bio", { exact: true })).toBeVisible();
@@ -156,6 +157,60 @@ test.describe("authenticated Treffin contracts", () => {
     expect(status).toBe(200);
     await expect.poll(() => updateBody).toContain("Database backed bio");
   });
+  test("the configured Elite Thinker threshold drives profiles and the desktop sidebar", async ({ page, isMobile }) => {
+    let allTimeLeaderboardRequested = false;
+    let syncPayload: Record<string, unknown> | null = null;
+    await page.route("**/api/users/me", async (route) => {
+      if (route.request().method() === "PUT") {
+        syncPayload = route.request().postDataJSON() as Record<string, unknown>;
+        return json(route, { ok: true, id: 1 });
+      }
+      return json(route, {
+        id: 1, betterAuthId: "auth-user", name: "Threshold Elite", title: "Elite Thinker",
+        bio: null, avatarUrl: null, interests: [], reputationScore: 75,
+        followers: 0, following: 0, articlesPublished: 0,
+      });
+    });
+    await page.route("**/api/reputation/settings", (route) => json(route, { eliteThreshold: 50 }));
+    await page.route("**/api/reputation", (route) => json(route, {
+      total: 75,
+      breakdown: { debates: 20, articles: 15, community: 10, votes: 10, posts: 20 },
+      recentEvents: [],
+    }));
+    await page.route("**/api/users/top-thinkers**", (route) => {
+      const period = new URL(route.request().url()).searchParams.get("period");
+      if (period === "all_time") {
+        allTimeLeaderboardRequested = true;
+        return json(route, [{
+          id: 2,
+          name: "Threshold Elite",
+          title: "Elite Thinker",
+          avatarUrl: null,
+          reputationScore: 75,
+          periodRep: 75,
+          rank: 1,
+        }]);
+      }
+      return json(route, []);
+    });
+
+    await page.goto("/");
+    await expect(page.getByTestId("home-user-rank")).toHaveText("Elite Thinker");
+    if (!isMobile) await expect(page.getByTestId("navbar-user-rank")).toHaveText("Elite Thinker");
+    await expect(page.getByText("Level Up!", { exact: true })).toHaveCount(0);
+    await expect.poll(() => syncPayload).not.toBeNull();
+    expect(syncPayload).not.toHaveProperty("title");
+
+    await page.goto("/profile");
+    await expect(page.getByTestId("profile-user-rank")).toHaveText("Elite Thinker");
+    if (!isMobile) {
+      await expect(page.getByTestId("elite-threshold-label")).toContainText("50+ rep");
+      await expect(page.getByText("Threshold Elite", { exact: true }).last()).toBeVisible();
+      await expect.poll(() => allTimeLeaderboardRequested).toBe(true);
+    }
+    await expectNoHorizontalOverflow(page);
+  });
+
 
   test("notifications load and mark an owned notification read", async ({ page }) => {
     let markedRead = false;
@@ -301,7 +356,9 @@ test.describe("authenticated Treffin contracts", () => {
       await json(route, { ...debate, supportPercent: 67, againstPercent: 33, participantCount: 3 });
     });
 
+    await page.addInitScript(() => localStorage.removeItem("treffin_first_vote_auth-user"));
     await page.goto("/debates/12");
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("treffin_first_vote_auth-user"))).toBeNull();
     const supportButton = page.getByTestId("button-vote-support");
     await expect(supportButton).toBeEnabled();
     await supportButton.evaluate((button) => {
@@ -310,10 +367,16 @@ test.describe("authenticated Treffin contracts", () => {
     });
 
     await expect.poll(() => voteRequests).toBe(1);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("treffin_first_vote_auth-user"))).toBe("1");
     await expect(supportButton).toContainText("Supporting");
     await expect(page.getByTestId("button-vote-against")).toBeDisabled();
+    await expect(page.getByTestId("first-vote-celebration")).toHaveCount(1);
+    await expect(page.getByText("First Vote!", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Dismiss celebration" }).click();
+    await expect(page.getByTestId("first-vote-celebration")).toHaveCount(0);
     await page.reload();
     await expect(page.getByTestId("button-vote-support")).toContainText("Supporting");
+    await expect(page.getByTestId("first-vote-celebration")).toHaveCount(0);
 
     await page.getByTestId("button-leave-debate").click();
     await expect.poll(() => leaveRequests).toBe(1);
@@ -321,6 +384,121 @@ test.describe("authenticated Treffin contracts", () => {
     await page.getByTestId("button-vote-against").evaluate((button) => (button as HTMLButtonElement).click());
     await expect.poll(() => voteRequests).toBe(2);
     await expect(page.getByTestId("button-vote-against")).toContainText("Opposing");
+    await expect(page.getByTestId("first-vote-celebration")).toHaveCount(0);
+  });
+
+  test("a closed debate without a published outcome exposes no participation actions", async ({ page }) => {
+    let voteRequests = 0;
+    const closedDebate = {
+      id: 13,
+      title: "Should a closed debate still accept votes?",
+      description: "A lifecycle regression fixture.",
+      category: "Technology",
+      supportPercent: 60,
+      againstPercent: 40,
+      participantCount: 5,
+      isLive: false,
+      imageUrl: null,
+      rank: null,
+      isTrending: false,
+      isFeatured: false,
+      endsAt: new Date(Date.now() - 3_600_000).toISOString(),
+      isFrozen: false,
+      frozenReason: null,
+      isAnonymous: false,
+      sourcesRequired: false,
+      closingArgMinHours: 0,
+      contentWarning: null,
+      healthScore: 100,
+      mathProblemId: null,
+      creatorUserId: "another-user",
+      creatorIsModerator: false,
+      winnerAuthority: "admin",
+      winnerStatus: "pending_admin",
+      endedEarly: false,
+      endedAt: new Date(Date.now() - 3_600_000).toISOString(),
+      wordLimit: null,
+      viewerCount: 0,
+    };
+
+    await page.route("**/api/debates/13", (route) => json(route, closedDebate));
+    await page.route("**/api/debates/13/outcome", (route) => json(route, null));
+    await page.route("**/api/debates/13/my-vote", (route) => json(route, { side: null }));
+    await page.route("**/api/debates/13/agreements", (route) => json(route, { canPost: false, agreements: [] }));
+    await page.route("**/api/debates/13/vote", async (route) => {
+      voteRequests += 1;
+      await json(route, { error: "This debate is no longer accepting votes" }, 409);
+    });
+
+    await page.goto("/debates/13");
+    await expect(page.getByText("Voting is closed", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("button-vote-support")).toHaveCount(0);
+    await expect(page.getByTestId("button-vote-against")).toHaveCount(0);
+    await expect(page.getByTestId("button-post-argument")).toHaveCount(0);
+    expect(voteRequests).toBe(0);
+  });
+
+  test("an existing math solution replaces the create composer with an edit direction", async ({ page, isMobile }) => {
+    await page.addInitScript(() => localStorage.setItem("math_user_id", "auth-user"));
+    const solution = {
+      id: 91,
+      problemId: 9,
+      userId: "auth-user",
+      userName: "Test User",
+      userAvatar: null,
+      body: "**Step 1:** Use the invariant.\n\n**Final Answer:** $42$",
+      approach: "proof",
+      isAccepted: false,
+      isFeatured: false,
+      qualityScore: 0,
+      eleganceVotes: 0,
+      rigorVotes: 0,
+      clarityVotes: 0,
+      reactionCounts: {},
+      myReactions: [],
+      createdAt: new Date().toISOString(),
+    };
+    await page.route("**/api/math/problems/9", (route) => json(route, {
+      id: 9,
+      userId: "problem-author",
+      userName: "Problem Author",
+      userAvatar: null,
+      title: "Prove the lifecycle invariant",
+      body: "Show that the invariant is preserved.",
+      categoryId: 1,
+      categoryName: "Algebra",
+      categoryColor: "#8b5cf6",
+      categoryIcon: "ä",
+      difficulty: "intermediate",
+      hints: [],
+      communityDifficulty: null,
+      difficultyVoteCount: 0,
+      difficultyDistribution: {},
+      myDifficultyVote: null,
+      isProblemOfWeek: false,
+      isFeatured: false,
+      isUnsolved: false,
+      status: "open",
+      viewCount: 1,
+      solutionCount: 1,
+      reactionCounts: {},
+      myReactions: [],
+      solutions: [solution],
+      createdAt: new Date().toISOString(),
+    }));
+    await page.route("**/api/math/problems/9/showdown", (route) => json(route, {
+      problemId: 9,
+      problemTitle: "Prove the lifecycle invariant",
+      solutions: [],
+      myVotes: { elegant: null, clear: null, rigorous: null, efficient: null },
+    }));
+
+    await page.goto("/math/problem/9");
+    await expect(page.getByText("Your solution is already published", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Submit your solution" })).toHaveCount(0);
+    await page.getByRole("button", { name: "View my solution" }).click();
+    await expect(page.locator("#solution-91")).toBeVisible();
+    if (isMobile) await expectNoHorizontalOverflow(page);
   });
   test("article editor isolates drafts by account and uses a contained phone layout", async ({ page, isMobile }) => {
     test.skip(!isMobile, "mobile-project check");

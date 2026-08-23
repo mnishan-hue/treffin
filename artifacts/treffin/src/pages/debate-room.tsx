@@ -537,11 +537,20 @@ export default function DebateRoom() {
   const [showRulesModal, setShowRulesModal] = useState(false);
   const [hasLeftDebate, setHasLeftDebate] = useState(false);
   const [isPostingArg, setIsPostingArg] = useState(false);
-  const [showCelebration, setShowCelebration] = useState(false);
+  const pendingVoteCelebrationKey = `treffin_pending_first_vote_${user?.id ?? "guest"}`;
+  const [celebrationDebateId, setCelebrationDebateId] = useState<number | null>(null);
   const [showOutcomeCelebration, setShowOutcomeCelebration] = useState(false);
-  const prevOutcomeRef = useRef<typeof outcome | null>(null);
+  const voteAnnotationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const outcomeCelebrationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousOutcomeRef = useRef<{ debateId: number; outcome: typeof outcome } | null>(null);
   const [viewerCount, setViewerCount] = useState<number>(debate?.viewerCount ?? 0);
   const pingClientId = useRef<string>(Math.random().toString(36).slice(2));
+
+  useEffect(() => {
+    const pendingDebateId = Number(sessionStorage.getItem(pendingVoteCelebrationKey));
+    setCelebrationDebateId(pendingDebateId === debateId ? debateId : null);
+  }, [debateId, pendingVoteCelebrationKey]);
+
 
   // Keep viewerCount in sync with the debate object (updated by GET /debates/:id refetch)
   useEffect(() => {
@@ -637,17 +646,28 @@ export default function DebateRoom() {
     }
   }, [commentsQuery.data, debateId]);
 
-  // Fire confetti celebration when the outcome first appears for the winning side
+  // Celebrate only when an outcome is published while this debate is open. An
+  // already-published outcome is established as the baseline on initial load.
   useEffect(() => {
-    if (outcome && !prevOutcomeRef.current) {
+    if (!outcomeQuery.isFetched) return;
+    const previous = previousOutcomeRef.current;
+    if (!previous || previous.debateId !== debateId) {
+      previousOutcomeRef.current = { debateId, outcome };
+      return;
+    }
+    if (outcome && !previous.outcome) {
       const isWinner = !!userVote && outcome.winningSide === userVote;
       const isDraw = outcome.winningSide === "draw";
       if (isWinner || isDraw) {
-        setTimeout(() => setShowOutcomeCelebration(true), 500);
+        if (outcomeCelebrationTimerRef.current) clearTimeout(outcomeCelebrationTimerRef.current);
+        outcomeCelebrationTimerRef.current = setTimeout(() => {
+          outcomeCelebrationTimerRef.current = null;
+          setShowOutcomeCelebration(true);
+        }, 500);
       }
     }
-    prevOutcomeRef.current = outcome ?? null;
-  }, [outcome, userVote]);
+    previousOutcomeRef.current = { debateId, outcome };
+  }, [debateId, outcome, outcomeQuery.isFetched, userVote]);
 
   const isCreator = !!user && !!debate && debate.creatorUserId === user.id;
   const creatorIsModerator = !!debate?.creatorIsModerator;
@@ -666,6 +686,21 @@ export default function DebateRoom() {
   const [axisDeclareText, setAxisDeclareText] = useState("");
   const [isDeclaringAxis, setIsDeclaringAxis] = useState(false);
   const [modDashOpen, setModDashOpen] = useState(false);
+
+  useEffect(() => {
+    setShowOutcomeCelebration(false);
+    setShowVoteAnnotationPrompt(false);
+    previousOutcomeRef.current = null;
+    if (voteAnnotationTimerRef.current) clearTimeout(voteAnnotationTimerRef.current);
+    if (outcomeCelebrationTimerRef.current) clearTimeout(outcomeCelebrationTimerRef.current);
+    voteAnnotationTimerRef.current = null;
+    outcomeCelebrationTimerRef.current = null;
+  }, [debateId]);
+
+  useEffect(() => () => {
+    if (voteAnnotationTimerRef.current) clearTimeout(voteAnnotationTimerRef.current);
+    if (outcomeCelebrationTimerRef.current) clearTimeout(outcomeCelebrationTimerRef.current);
+  }, []);
 
   // Mod log — only fetched when the creator-moderator panel is open
   const modLogQuery = useQuery({
@@ -929,6 +964,10 @@ export default function DebateRoom() {
 
   const handleVote = (vote: "support" | "against") => {
     if (userVote || voteSubmissionRef.current) return;
+    if (!debate?.isLive) {
+      toast({ title: "Voting has closed", description: "This debate is waiting for its final outcome.", variant: "destructive" });
+      return;
+    }
     if (!user) {
       toast({ title: "Sign in to vote", description: "Create a free account to take a stance and join the debate.", variant: "destructive" });
       setTimeout(() => setLocation("/sign-in"), 1200);
@@ -948,7 +987,11 @@ export default function DebateRoom() {
           queryClient.invalidateQueries({ queryKey: getGetDebateQueryKey(debateId) });
           queryClient.invalidateQueries({ queryKey: getGetDebateAgreementsQueryKey(debateId) });
           toast({ title: `Voted ${vote === "support" ? "in support" : "against"}!` });
-          setTimeout(() => setShowVoteAnnotationPrompt(true), 600);
+          if (voteAnnotationTimerRef.current) clearTimeout(voteAnnotationTimerRef.current);
+          voteAnnotationTimerRef.current = setTimeout(() => {
+            voteAnnotationTimerRef.current = null;
+            setShowVoteAnnotationPrompt(true);
+          }, 600);
           // Key is per-user so multiple accounts on the same device each
           // get their own first-vote celebration (not just whichever user
           // happened to vote first on this device).
@@ -956,8 +999,13 @@ export default function DebateRoom() {
           const isFirstVote = !localStorage.getItem(voteKey);
           if (isFirstVote) {
             localStorage.setItem(voteKey, "1");
-            triggerRep(10, "vote");
-            setTimeout(() => setShowCelebration(true), 350);
+            sessionStorage.setItem(pendingVoteCelebrationKey, String(debateId));
+            setCelebrationDebateId(debateId);
+            try {
+              triggerRep(10, "vote");
+            } catch (error) {
+              console.warn("Could not refresh reputation after first vote", error);
+            }
           }
         },
         onError: (err: unknown) => {
@@ -1301,7 +1349,7 @@ export default function DebateRoom() {
                     <span className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse" /> Live Now
                   </span>
                 )}
-                {!!outcome && (
+                {!debate.isLive && (
                   <span className="text-[10px] font-bold text-muted-foreground bg-muted px-2 py-0.5 rounded uppercase tracking-wider">Closed</span>
                 )}
                 {(debate as { endedEarly?: boolean }).endedEarly && (
@@ -1413,7 +1461,7 @@ export default function DebateRoom() {
                         <Square className="w-3 h-3" /> {isEnding ? "Ending…" : "End Debate Early"}
                       </button>
                     )}
-                    {winnerAuthority === "creator" && winnerStatus === "undecided" && (
+                    {!debate.isLive && winnerAuthority === "creator" && winnerStatus === "undecided" && (
                       <button onClick={() => setShowDeclareModal(true)} className="flex items-center gap-1.5 text-xs font-bold border border-yellow-400/40 bg-yellow-400/5 text-yellow-400 hover:bg-yellow-400/15 px-3 py-1.5 rounded-full transition-colors" data-testid="button-declare-winner">
                         <Trophy className="w-3 h-3" /> Declare Winner
                       </button>
@@ -1562,7 +1610,7 @@ export default function DebateRoom() {
                 </div>
               </div>
 
-              {!outcome && canModerate && (
+              {!outcome && debate.isLive && canModerate && (
                 <div className="flex flex-col gap-3 mt-2 p-4 rounded-2xl bg-amber-400/5 border border-amber-500/20">
                   <p className="text-xs font-bold text-amber-400 uppercase tracking-wide">You're the moderator of this debate</p>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">You've stepped out of the argument to run it fairly. That means you can't vote or post — but you hold real power over how this debate plays out.</p>
@@ -1585,7 +1633,7 @@ export default function DebateRoom() {
                   </div>
                 </div>
               )}
-              {!outcome && !canModerate && (
+              {!outcome && debate.isLive && !canModerate && (
                 <div className="flex flex-col gap-2 mt-2">
                   {/* Dramatic split-button vote panel */}
                   <div className="relative flex h-[76px] rounded-2xl overflow-hidden border border-border">
@@ -1657,6 +1705,12 @@ export default function DebateRoom() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+              {!outcome && !debate.isLive && (
+                <div className="mt-2 rounded-xl border border-border bg-muted/20 px-4 py-3 text-center">
+                  <p className="text-sm font-semibold text-foreground">Voting is closed</p>
+                  <p className="mt-1 text-xs text-muted-foreground">The final outcome has not been published yet.</p>
                 </div>
               )}
 
@@ -1782,7 +1836,7 @@ export default function DebateRoom() {
             )}
 
             {/* Post an argument */}
-            {!outcome && !canModerate && !(debate as { isFrozen?: boolean }).isFrozen && !hasLeftDebate && (
+            {!outcome && debate.isLive && !canModerate && !(debate as { isFrozen?: boolean }).isFrozen && !hasLeftDebate && (
               <div className="bg-card border border-border rounded-xl p-4 flex flex-col gap-3">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-sm font-semibold">Post your argument</span>
@@ -2020,11 +2074,11 @@ export default function DebateRoom() {
           </div>
         )}
       </div>
-      {showCelebration && (
-        <ConfettiCelebration onDismiss={() => setShowCelebration(false)} />
+      {celebrationDebateId === debateId && (
+        <ConfettiCelebration variant="first-vote" onDismiss={() => { sessionStorage.removeItem(pendingVoteCelebrationKey); setCelebrationDebateId(null); }} />
       )}
       {showOutcomeCelebration && (
-        <ConfettiCelebration onDismiss={() => setShowOutcomeCelebration(false)} />
+        <ConfettiCelebration variant="outcome" onDismiss={() => setShowOutcomeCelebration(false)} />
       )}
 
       {/* ── End Debate Confirmation Modal ───────────────────────────── */}

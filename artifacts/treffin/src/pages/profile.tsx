@@ -6,7 +6,7 @@ import { formatNumber, cn } from "@/lib/utils";
 import { LogOut, BookOpen, MessageSquare, Award, Shield, FileText, Pencil, Check, X, Trophy, Zap, Trash2, ClipboardCheck, Clock, CheckCircle, XCircle, Target, Plus, RotateCcw, Download, Share2 } from "lucide-react";
 import { useInstallPWA } from "@/lib/use-install-pwa";
 import { useLocation, Link, useParams } from "wouter";
-import { useGetFeed, useGetReputation, useGetCurrentUser, useGetMyReviewRequests, useGetUserPositions, useCreateUserPosition, useGetTopics, UserPositionGroup, useGetUserDna, useGetUser, getGetUserQueryKey } from "@workspace/api-client-react";
+import { useGetFeed, useGetReputation, useGetCurrentUser, useGetMyReviewRequests, useGetUserPositions, useCreateUserPosition, useGetTopics, UserPositionGroup, useGetUserDna, useGetUser, getGetUserQueryKey, useGetReputationSettings, getGetReputationSettingsQueryKey } from "@workspace/api-client-react";
 import { PostCard } from "@/components/feed/post-card";
 import { ArticleCard } from "@/components/feed/article-card";
 import { IntellectualDnaChart } from "@/components/intellectual-dna-chart";
@@ -15,16 +15,30 @@ import { useAppContext } from "@/context/app-context";
 import { useToast } from "@/hooks/use-toast";
 import { authenticatedFetch, getApiUrl } from "@/lib/api-url";
 
-const LEVELS = [
-  { name: "Novice",        min: 0,    max: 99,   color: "text-slate-400",  bg: "bg-slate-400",  border: "border-slate-400/30",  glow: "" },
-  { name: "Thinker",       min: 100,  max: 299,  color: "text-blue-400",   bg: "bg-blue-400",   border: "border-blue-400/30",   glow: "shadow-[0_0_12px_rgba(96,165,250,0.3)]" },
-  { name: "Scholar",       min: 300,  max: 599,  color: "text-indigo-400", bg: "bg-indigo-400", border: "border-indigo-400/30", glow: "shadow-[0_0_12px_rgba(129,140,248,0.3)]" },
-  { name: "Intellectual",  min: 600,  max: 999,  color: "text-orange-400", bg: "bg-orange-400", border: "border-orange-400/30", glow: "shadow-[0_0_12px_rgba(251,146,60,0.3)]" },
-  { name: "Elite Thinker", min: 1000, max: Infinity, color: "text-yellow-400", bg: "bg-yellow-400", border: "border-yellow-400/30", glow: "shadow-[0_0_12px_rgba(250,204,21,0.3)]" },
-];
+function buildLevels(eliteThreshold: number) {
+  return [
+    { name: "Novice", min: 0, color: "text-slate-400", bg: "bg-slate-400", border: "border-slate-400/30", glow: "" },
+    { name: "Thinker", min: Math.floor(eliteThreshold * 0.1), color: "text-blue-400", bg: "bg-blue-400", border: "border-blue-400/30", glow: "shadow-[0_0_12px_rgba(96,165,250,0.3)]" },
+    { name: "Scholar", min: Math.floor(eliteThreshold * 0.3), color: "text-indigo-400", bg: "bg-indigo-400", border: "border-indigo-400/30", glow: "shadow-[0_0_12px_rgba(129,140,248,0.3)]" },
+    { name: "Intellectual", min: Math.floor(eliteThreshold * 0.6), color: "text-orange-400", bg: "bg-orange-400", border: "border-orange-400/30", glow: "shadow-[0_0_12px_rgba(251,146,60,0.3)]" },
+    { name: "Elite Thinker", min: eliteThreshold, color: "text-yellow-400", bg: "bg-yellow-400", border: "border-yellow-400/30", glow: "shadow-[0_0_12px_rgba(250,204,21,0.3)]" },
+  ];
+}
 
-function getLevel(rep: number) {
-  return LEVELS.find(l => rep >= l.min && rep <= l.max) ?? LEVELS[0];
+function useReputationLevels() {
+  const { data } = useGetReputationSettings({
+    query: {
+      queryKey: getGetReputationSettingsQueryKey(),
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+      refetchOnWindowFocus: true,
+    },
+  });
+  return buildLevels(data?.eliteThreshold ?? 1000);
+}
+
+function getLevel(rep: number, levels: ReturnType<typeof buildLevels>) {
+  return [...levels].reverse().find(level => rep >= level.min) ?? levels[0];
 }
 
 const INTEREST_MAP: Record<string, string> = {
@@ -325,6 +339,7 @@ function nameToInitials(name: string) {
 
 function PublicProfile({ userId }: { userId: number }) {
   const [activeTab, setActiveTab] = useState<"posts" | "articles" | "debates" | "stats" | "positions">("posts");
+  const levels = useReputationLevels();
 
   const { data: user, isLoading: userLoading, isError: userError } = useGetUser(userId, {
     query: { queryKey: getGetUserQueryKey(userId), retry: false },
@@ -354,8 +369,8 @@ function PublicProfile({ userId }: { userId: number }) {
   );
 
   const initials = nameToInitials(user.name);
-  const level = getLevel(user.reputationScore);
-  const nextLevel = LEVELS[LEVELS.indexOf(level) + 1];
+  const level = getLevel(user.reputationScore, levels);
+  const nextLevel = levels[levels.indexOf(level) + 1];
   const levelPct = nextLevel ? Math.round(((user.reputationScore - level.min) / (nextLevel.min - level.min)) * 100) : 100;
   const posts = feedData?.filter(p => p.type !== "article").slice(0, 4) ?? [];
   const userArticles = (articleFeed ?? []).slice(0, 4) as any[];
@@ -390,7 +405,7 @@ function PublicProfile({ userId }: { userId: number }) {
 
               <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border w-fit", level.border, level.glow, "bg-card/50")}>
                 <Trophy className={cn("w-3.5 h-3.5", level.color)} />
-                <span className={cn("text-sm font-black", level.color)}>{level.name}</span>
+                <span data-testid="profile-user-rank" className={cn("text-sm font-black", level.color)}>{level.name}</span>
                 <span className="text-xs text-muted-foreground">·</span>
                 <span className={cn("text-xs font-semibold", level.color)}>{formatNumber(user.reputationScore)} rep</span>
               </div>
@@ -502,6 +517,7 @@ type ProfileTab = "posts" | "articles" | "debates" | "stats" | "positions";
 
 function OwnProfile() {
   const { user } = useSession();
+  const levels = useReputationLevels();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const { sessionRep } = useAppContext();
@@ -578,9 +594,9 @@ function OwnProfile() {
   const displayName = currentUser?.name || savedName || authName;
   const initials = displayName ? displayName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2) : "GU";
 
-  const totalRep = (repData?.total ?? 0) + sessionRep;
-  const level = getLevel(totalRep);
-  const nextLevel = LEVELS[LEVELS.indexOf(level) + 1];
+  const totalRep = repData?.total ?? 0;
+  const level = getLevel(totalRep, levels);
+  const nextLevel = levels[levels.indexOf(level) + 1];
   const levelPct = nextLevel ? Math.round(((totalRep - level.min) / (nextLevel.min - level.min)) * 100) : 100;
 
   const interests = Array.from(draftInterests).map(id => INTEREST_MAP[id] ?? id);
@@ -729,7 +745,7 @@ function OwnProfile() {
               {/* Level Badge */}
               <div className={cn("flex items-center gap-2 px-3 py-1.5 rounded-lg border w-fit", level.border, level.glow, "bg-card/50")}>
                 <Trophy className={cn("w-3.5 h-3.5", level.color)} />
-                <span className={cn("text-sm font-black", level.color)}>{level.name}</span>
+                <span data-testid="profile-user-rank" className={cn("text-sm font-black", level.color)}>{level.name}</span>
                 <span className="text-xs text-muted-foreground">·</span>
                 <span className={cn("text-xs font-semibold", level.color)}>{formatNumber(totalRep)} rep</span>
               </div>

@@ -186,6 +186,7 @@ export * from './repAwardInputEventType';
 export * from './reportCreatorInput';
 export * from './reputationBreakdown';
 export * from './reputationEvent';
+export * from './reputationSettings';
 export * from './reputationSummary';
 export * from './resolveCreatorReportInput';
 export * from './resolveCreatorReportInputStatus';
