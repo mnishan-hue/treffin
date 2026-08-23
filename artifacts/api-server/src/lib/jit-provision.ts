@@ -38,7 +38,7 @@ export async function jitProvisionUser(
         // Bridge legacy foreign keys while Better Auth is the canonical identity.
         clerkId: baUser.id,
         name: fullName,
-        title: "New Member",
+        title: "Novice",
         bio: null,
         avatarUrl,
         reputationScore: 0,

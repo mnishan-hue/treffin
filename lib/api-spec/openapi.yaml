@@ -1090,6 +1090,21 @@ paths:
         "401":
           description: Unauthorized
 
+  /reputation/settings:
+    get:
+      operationId: getReputationSettings
+      tags: [reputation]
+      summary: Get public reputation tier settings
+      responses:
+        "200":
+          description: Current reputation tier settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReputationSettings"
+        "500":
+          description: Reputation settings unavailable
+
   /reputation/award:
     post:
       operationId: awardReputation
@@ -1491,13 +1506,13 @@ paths:
             type: integer
       responses:
         "200":
-          description: Debate outcome
+          description: Published debate outcome, or null while a decision is pending
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DebateOutcome"
-        "404":
-          description: No outcome found
+                oneOf:
+                  - $ref: "#/components/schemas/DebateOutcome"
+                  - type: "null"
 
   /debates/{id}/comments:
     get:
@@ -4113,6 +4128,15 @@ components:
           items:
             $ref: "#/components/schemas/ReputationEvent"
 
+    ReputationSettings:
+      type: object
+      required: [eliteThreshold]
+      properties:
+        eliteThreshold:
+          type: integer
+          minimum: 1
+          maximum: 1000000
+
     RepAwardInput:
       type: object
       required: [eventType, description]
@@ -4639,8 +4663,6 @@ components:
       required: [name]
       properties:
         name:
-          type: string
-        title:
           type: string
         bio:
           type: string

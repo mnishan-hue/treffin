@@ -38,6 +38,17 @@ export async function loadEliteThreshold(): Promise<number> {
 
 const router = Router();
 
+router.get("/reputation/settings", async (req, res) => {
+  try {
+    const eliteThreshold = await loadEliteThreshold();
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ eliteThreshold });
+  } catch (err) {
+    req.log.error({ err }, "Failed to load public reputation settings");
+    res.status(500).json({ error: "Reputation settings are unavailable" });
+  }
+});
+
 export const REP_VALUES: Record<string, number> = {
   post_created: 10,
   post_liked: 3,

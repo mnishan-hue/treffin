@@ -144,7 +144,6 @@ export function reputationReference(...parts: Array<string | number>): number {
 }
 export type UserProfileUpdate = {
   name?: string;
-  title?: string;
   bio?: string;
   avatarUrl?: string | null;
 };
@@ -159,7 +158,7 @@ export function normalizeUserProfileUpdate(input: unknown): UserProfileUpdateRes
   const source = input as Record<string, unknown>;
   const value: UserProfileUpdate = {};
 
-  for (const [field, max] of [["name", 80], ["title", 80], ["bio", 1_000]] as const) {
+  for (const [field, max] of [["name", 80], ["bio", 1_000]] as const) {
     if (source[field] === undefined) continue;
     if (typeof source[field] !== "string") return { ok: false, error: `${field} must be text` };
     const normalized = source[field].trim();

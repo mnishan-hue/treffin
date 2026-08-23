@@ -6,9 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface UserSyncInput {
-  name: string;
-  bio?: string;
-  /** @nullable */
-  avatarUrl?: string | null;
+export interface ReputationSettings {
+  /**
+     * @minimum 1
+     * @maximum 1000000
+     */
+  eliteThreshold: number;
 }

@@ -95,4 +95,8 @@ test("profile updates accept only bounded text and HTTP(S) avatar URLs", () => {
   assert.equal(normalizeUserProfileUpdate({ avatarUrl: "javascript:alert(1)" }).ok, false);
   assert.equal(normalizeUserProfileUpdate({ avatarUrl: "https://example.com/avatar.png" }).ok, true);
   assert.equal(normalizeUserProfileUpdate({ unsupported: true }).ok, false);
+  assert.deepEqual(normalizeUserProfileUpdate({ name: "Ada", title: "Elite Thinker" }), {
+    ok: true,
+    value: { name: "Ada" },
+  });
 });

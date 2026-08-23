@@ -350,7 +350,7 @@ function WeeklyChallengeCard() {
   );
 }
 /* ── Stats Ribbon ───────────────────────────────────────────────────────── */
-function StatsRibbon() {
+function StatsRibbon({ title }: { title?: string }) {
   const { user } = useSession();
   const { sessionRep } = useAppContext();
   const hour = new Date().getHours();
@@ -372,7 +372,7 @@ function StatsRibbon() {
         )}
         <div className="flex items-center gap-1.5 text-indigo-400">
           <Trophy className="w-3.5 h-3.5" />
-          <span className="text-xs font-bold whitespace-nowrap">Scholar</span>
+          <span data-testid="home-user-rank" className="text-xs font-bold whitespace-nowrap">{title ?? "Novice"}</span>
         </div>
       </div>
     </div>
@@ -400,7 +400,7 @@ export default function Home() {
   const interestStorageKey = user?.id ? `${INTERESTS_STORAGE_KEY}_${user.id}` : INTERESTS_STORAGE_KEY;
   const interestSkipKey = user?.id ? `treffin_interests_skipped_${user.id}` : "treffin_interests_skipped_guest";
   const { data: currentUser, isLoading: currentUserLoading } = useGetCurrentUser({
-    query: { queryKey: getGetCurrentUserQueryKey(), enabled: !!isSignedIn, retry: false, staleTime: 60_000 },
+    query: { queryKey: getGetCurrentUserQueryKey(), enabled: !!isSignedIn, retry: false, staleTime: 15_000, refetchInterval: 30_000, refetchOnWindowFocus: true },
   });
 
   useEffect(() => {
@@ -532,7 +532,7 @@ export default function Home() {
           {tab === "for_you" && !topicFilter && (
             <>
               {isSignedIn && (
-                <StatsRibbon />
+                <StatsRibbon title={currentUser?.title} />
               )}
 
               {/* Quick action cards */}

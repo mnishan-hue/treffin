@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, X, MessageSquare, Trophy } from "lucide-react";
 
@@ -67,23 +67,34 @@ function ConfettiPiece({ p }: { p: Piece }) {
 
 interface Props {
   onDismiss: () => void;
+  variant?: "first-vote" | "outcome";
 }
 
-export function ConfettiCelebration({ onDismiss }: Props) {
+export function ConfettiCelebration({ onDismiss, variant = "first-vote" }: Props) {
   const [pieces] = useState(() => generatePieces(90));
   const [visible, setVisible] = useState(true);
+  const onDismissRef = useRef(onDismiss);
+  const removalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
   useEffect(() => {
     const t = setTimeout(() => {
       setVisible(false);
-      setTimeout(onDismiss, 450);
+      removalTimerRef.current = setTimeout(() => onDismissRef.current(), 450);
     }, 4000);
-    return () => clearTimeout(t);
-  }, [onDismiss]);
+    return () => {
+      clearTimeout(t);
+      if (removalTimerRef.current) clearTimeout(removalTimerRef.current);
+    };
+  }, []);
 
   const dismiss = () => {
     setVisible(false);
-    setTimeout(onDismiss, 450);
+    if (removalTimerRef.current) clearTimeout(removalTimerRef.current);
+    removalTimerRef.current = setTimeout(() => onDismissRef.current(), 450);
   };
 
   return (
@@ -96,6 +107,7 @@ export function ConfettiCelebration({ onDismiss }: Props) {
         <AnimatePresence>
           {visible && (
             <motion.div
+              data-testid={`${variant}-celebration`}
               initial={{ scale: 0.4, opacity: 0, y: 30 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.88, opacity: 0, y: -12 }}
@@ -104,6 +116,7 @@ export function ConfettiCelebration({ onDismiss }: Props) {
             >
               <button
                 onClick={dismiss}
+                aria-label="Dismiss celebration"
                 className="absolute top-3 right-3 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
               >
                 <X className="w-3.5 h-3.5 text-white/70" />
@@ -124,7 +137,7 @@ export function ConfettiCelebration({ onDismiss }: Props) {
                 transition={{ delay: 0.2 }}
                 className="text-2xl font-black text-white mb-1"
               >
-                First Vote!
+                {variant === "first-vote" ? "First Vote!" : "Debate Decided!"}
               </motion.h2>
               <motion.p
                 initial={{ opacity: 0 }}
@@ -132,19 +145,30 @@ export function ConfettiCelebration({ onDismiss }: Props) {
                 transition={{ delay: 0.3 }}
                 className="text-sm text-indigo-200/75 mb-5 leading-relaxed"
               >
-                You've officially entered the debate.<br />
-                Your voice is now part of the record.
+                {variant === "first-vote" ? (
+                  <>
+                    You&apos;ve officially entered the debate.<br />
+                    Your voice is now part of the record.
+                  </>
+                ) : (
+                  <>
+                    The outcome is in.<br />
+                    Thanks for making your voice part of the debate.
+                  </>
+                )}
               </motion.p>
 
-              <motion.div
-                initial={{ y: 10, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ delay: 0.4 }}
-                className="inline-flex items-center gap-2 bg-yellow-500/20 border border-yellow-400/40 text-yellow-300 font-bold px-5 py-2.5 rounded-full text-sm mb-5 shadow-[0_0_20px_rgba(234,179,8,0.25)]"
-              >
-                <Sparkles className="w-4 h-4" />
-                +10 Reputation Points earned!
-              </motion.div>
+              {variant === "first-vote" && (
+                <motion.div
+                  initial={{ y: 10, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ delay: 0.4 }}
+                  className="inline-flex items-center gap-2 bg-yellow-500/20 border border-yellow-400/40 text-yellow-300 font-bold px-5 py-2.5 rounded-full text-sm mb-5 shadow-[0_0_20px_rgba(234,179,8,0.25)]"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  +10 Reputation Points earned!
+                </motion.div>
+              )}
 
               <motion.div
                 initial={{ opacity: 0 }}
@@ -152,14 +176,23 @@ export function ConfettiCelebration({ onDismiss }: Props) {
                 transition={{ delay: 0.55 }}
                 className="space-y-2 text-xs text-indigo-300/60"
               >
-                <div className="flex items-center justify-center gap-2">
-                  <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-                  <span>Post an argument to earn +15 more rep</span>
-                </div>
-                <div className="flex items-center justify-center gap-2">
-                  <Trophy className="w-3.5 h-3.5 shrink-0" />
-                  <span>Reach Scholar rank to unlock new features</span>
-                </div>
+                {variant === "first-vote" ? (
+                  <>
+                    <div className="flex items-center justify-center gap-2">
+                      <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                      <span>Post an argument to earn +15 more rep</span>
+                    </div>
+                    <div className="flex items-center justify-center gap-2">
+                      <Trophy className="w-3.5 h-3.5 shrink-0" />
+                      <span>Reach Scholar rank to unlock new features</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-center gap-2">
+                    <Trophy className="w-3.5 h-3.5 shrink-0" />
+                    <span>Review the published outcome and strongest arguments</span>
+                  </div>
+                )}
               </motion.div>
             </motion.div>
           )}

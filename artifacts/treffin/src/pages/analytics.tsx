@@ -11,7 +11,7 @@ import {
 import { TrendingUp, MessageCircle, Award, BookOpen, FileText, Zap, Crown, Trophy } from "lucide-react";
 import { formatNumber, cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useGetTopThinkers, getGetTopThinkersQueryKey } from "@workspace/api-client-react";
+import { useGetTopThinkers, getGetTopThinkersQueryKey, useGetReputationSettings, getGetReputationSettingsQueryKey } from "@workspace/api-client-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type AnalyticsData = {
@@ -117,6 +117,16 @@ type Period = typeof PERIOD_OPTIONS[number]["value"];
 function PublicLeaderboard() {
   const [, setLocation] = useLocation();
   const [period, setPeriod] = useState<Period>("this_week");
+  const { data: reputationSettings } = useGetReputationSettings({
+    query: {
+      queryKey: getGetReputationSettingsQueryKey(),
+      refetchInterval: 30_000,
+      staleTime: 15_000,
+      refetchOnWindowFocus: true,
+    },
+  });
+  const eliteThreshold = reputationSettings?.eliteThreshold ?? 1000;
+
   const { data: thinkers, isLoading } = useGetTopThinkers(
     { period },
     {
@@ -124,6 +134,7 @@ function PublicLeaderboard() {
         queryKey: getGetTopThinkersQueryKey({ period }),
         refetchInterval: 60_000,
         staleTime: 30_000,
+        refetchOnWindowFocus: true,
       },
     },
   );
@@ -187,7 +198,7 @@ function PublicLeaderboard() {
                   <p className="text-sm font-semibold truncate">{t.name}</p>
                   <div className="flex items-center gap-1.5">
                     <p className="text-[11px] text-muted-foreground truncate">{t.title}</p>
-                    {t.reputationScore >= 1000 && (
+                    {t.reputationScore >= eliteThreshold && (
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0" style={{ background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.25)" }}>
                         ✦ Elite
                       </span>

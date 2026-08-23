@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { setAuthTokenGetter, useSyncCurrentUser } from "@workspace/api-client-react";
+import { getGetCurrentUserQueryKey, setAuthTokenGetter, useSyncCurrentUser } from "@workspace/api-client-react";
 import { syncMathUser, clearMathUser } from "@/lib/math-auth";
 import { Switch, Route, useLocation, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
@@ -82,7 +82,12 @@ const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 function UserSyncer() {
   const { user, isSignedIn } = useSession();
-  const syncMutation = useSyncCurrentUser();
+  const queryClient = useQueryClient();
+  const syncMutation = useSyncCurrentUser({
+    mutation: {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() }),
+    },
+  });
   const syncedRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -91,7 +96,7 @@ function UserSyncer() {
     const pendingName = localStorage.getItem("treffin_name")?.trim() ?? "";
     const displayName = pendingName || user.fullName || user.email || "Member";
     if (pendingName) localStorage.removeItem("treffin_name");
-    syncMutation.mutate({ data: { name: displayName, title: "Member", avatarUrl: user.imageUrl } });
+    syncMutation.mutate({ data: { name: displayName, avatarUrl: user.imageUrl } });
   }, [isSignedIn, user, syncMutation]);
 
   return null;

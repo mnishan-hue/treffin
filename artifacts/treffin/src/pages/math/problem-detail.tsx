@@ -1175,7 +1175,7 @@ function SolutionCard({ sol, problemId, index, problemOwnerId }: { sol: MathSolu
   const initial = sol.userName?.charAt(0).toUpperCase() ?? "?";
 
   return (
-    <div className="border border-border rounded-xl overflow-hidden" style={{ background: "var(--color-card)" }}>
+    <div id={`solution-${sol.id}`} className="border border-border rounded-xl overflow-hidden scroll-mt-24" style={{ background: "var(--color-card)" }}>
       {/* Header */}
       <div
         className="flex items-center justify-between px-5 py-3 border-b border-border"
@@ -1383,6 +1383,7 @@ function StepSolutionComposer({ problemId }: { problemId: number }) {
   const [activeStepId, setActiveStepId] = useState<string>("step-1");
   const [solvingTime, setSolvingTime] = useState<number | null>(null);
   const stepRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
+  const submitInFlightRef = useRef(false);
 
   const addStep = () => {
     const newId = `step-${Date.now()}`;
@@ -1417,6 +1418,7 @@ function StepSolutionComposer({ problemId }: { problemId: number }) {
   }, [activeStepId]);
 
   const handleSubmit = () => {
+    if (submitSolution.isPending || submitInFlightRef.current) return;
     const filledSteps = steps.filter((s) => s.content.trim());
     if (filledSteps.length === 0 && !finalAnswer.trim()) {
       toast({ title: "Solution empty", description: "Add at least one step before submitting.", variant: "destructive" });
@@ -1429,11 +1431,13 @@ function StepSolutionComposer({ problemId }: { problemId: number }) {
     const parts = filledSteps.map((s, i) => `**Step ${i + 1}:** ${s.content.trim()}`);
     if (finalAnswer.trim()) parts.push(`**Final Answer:** ${finalAnswer.trim()}`);
     const body = parts.join("\n\n");
+    submitInFlightRef.current = true;
 
     submitSolution.mutate(
       { id: problemId, data: { body, approach, ...(solvingTime ? { solvingTime } : {}) } },
       {
         onSuccess: () => {
+          submitInFlightRef.current = false;
           setSteps([{ id: "step-1", content: "" }]);
           setFinalAnswer("");
           setApproach("other");
@@ -1442,8 +1446,14 @@ function StepSolutionComposer({ problemId }: { problemId: number }) {
           toast({ title: "Solution submitted!", description: "Your solution has been posted." });
           queryClient.invalidateQueries({ queryKey: getGetMathProblemQueryKey(problemId) });
         },
-        onError: () => {
-          toast({ title: "Error", description: "Failed to submit solution.", variant: "destructive" });
+        onError: (error: unknown) => {
+          submitInFlightRef.current = false;
+          const data = (error as { data?: { error?: string } | null })?.data;
+          toast({
+            title: "Could not submit solution",
+            description: data?.error ?? "Please try again. If you already submitted a solution, edit it above instead.",
+            variant: "destructive",
+          });
         },
       },
     );
@@ -1643,6 +1653,8 @@ export default function ProblemDetail() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  const currentUserId = getMathUserId();
+  const existingOwnSolution = problem?.solutions?.find((solution: MathSolution) => solution.userId === currentUserId);
   const handleFlag = () => {
     if (!getMathUserId()) {
       toast({ title: "Sign in required", description: "Please sign in to flag content.", variant: "destructive" });
@@ -1818,8 +1830,27 @@ export default function ProblemDetail() {
             )}
           </div>
 
-          {/* Submit solution */}
-          <StepSolutionComposer problemId={id} />
+          {/* Submit one solution, or direct the author to the existing editor. */}
+          {existingOwnSolution ? (
+            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="font-serif text-lg font-bold text-foreground">Your solution is already published</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">Each solver gets one solution per problem. Use the pencil on your solution to improve it.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => document.getElementById(`solution-${existingOwnSolution.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="shrink-0"
+                >
+                  View my solution
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <StepSolutionComposer problemId={id} />
+          )}
         </main>
 
         {/* RIGHT: Context panel */}
