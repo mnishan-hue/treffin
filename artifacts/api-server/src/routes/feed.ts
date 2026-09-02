@@ -32,7 +32,6 @@ function trendingScore(post: { likes: number; comments: number; reposts: number;
 function buildPostResponse(
   post: typeof postsTable.$inferSelect,
   author: typeof usersTable.$inferSelect | undefined,
-  timeAgo: string,
   requestingUserId: number | null,
   liked = false,
 ) {
@@ -47,7 +46,7 @@ function buildPostResponse(
     authorTitle: isAnonymous ? "" : (author?.title ?? ""),
     authorAvatar: isAnonymous ? null : (author?.avatarUrl ?? null),
     isVerified: isAnonymous ? false : (author?.isVerified ?? false),
-    createdAt: timeAgo,
+    createdAt: post.createdAt.toISOString(),
     content: post.content ?? null,
     title: post.title ?? null,
     excerpt: post.excerpt ?? null,
@@ -117,15 +116,9 @@ router.get("/feed", async (req, res) => {
       likedRows.forEach(r => likedSet.add(r.postId));
     }
 
-    const now = new Date();
     const result = rows.map(({ post, author }) => {
-      const diff = now.getTime() - post.createdAt.getTime();
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor(diff / 60000);
-      const timeAgo = hours > 0 ? `${hours}h ago` : `${mins}m ago`;
-
       return {
-        ...buildPostResponse(post, author ?? undefined, timeAgo, requestingUserId, likedSet.has(post.id)),
+        ...buildPostResponse(post, author ?? undefined, requestingUserId, likedSet.has(post.id)),
         _score: tab === "following" ? trendingScore(post) : engagementScore(post),
       };
     });
@@ -187,7 +180,7 @@ router.post("/posts", async (req, res) => {
       req.log.error({ err }, "Failed to award post_created rep");
     }
 
-    res.status(201).json(buildPostResponse(post, dbUser, "just now", requestingUserId));
+    res.status(201).json(buildPostResponse(post, dbUser, requestingUserId));
   } catch (err) {
     req.log.error({ err }, "Failed to create post");
     res.status(500).json({ error: "Failed to create post" });
@@ -227,7 +220,7 @@ router.patch("/posts/:id/reveal", async (req, res) => {
       .where(eq(postsTable.id, id))
       .returning();
 
-    res.json(buildPostResponse(updated, dbUser, "recently", dbUser.id));
+    res.json(buildPostResponse(updated, dbUser, dbUser.id));
   } catch (err) {
     req.log.error({ err }, "Failed to reveal post identity");
     res.status(500).json({ error: "Failed to reveal post identity" });
@@ -301,7 +294,7 @@ router.post("/posts/:id/like", async (req, res) => {
     }
 
     const [author] = await db.select().from(usersTable).where(eq(usersTable.id, updated.authorId)).limit(1);
-    res.json({ ...buildPostResponse(updated, author, "recently", requestingUserId), liked: !existing });
+    res.json({ ...buildPostResponse(updated, author, requestingUserId), liked: !existing });
   } catch (err) {
     req.log.error({ err }, "Failed to like post");
     res.status(500).json({ error: "Failed to like post" });

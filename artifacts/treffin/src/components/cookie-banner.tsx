@@ -33,18 +33,18 @@ export function CookieBanner() {
     <div
       style={{
         position: "fixed",
-        top: 0,
+        bottom: 0,
         left: 0,
         right: 0,
         background: "hsl(var(--card))",
-        borderBottom: "1px solid hsl(var(--border))",
-        padding: "14px 20px",
+        borderTop: "1px solid hsl(var(--border))",
+        padding: "14px max(20px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left))",
         zIndex: 9999,
         display: "flex",
         alignItems: "center",
         gap: 12,
         flexWrap: "wrap",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.15)",
+        boxShadow: "0 -4px 24px rgba(0,0,0,0.15)",
       }}
     >
       <Cookie size={20} style={{ color: "hsl(var(--primary))", flexShrink: 0 }} />

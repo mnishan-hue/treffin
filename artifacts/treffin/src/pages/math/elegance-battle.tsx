@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -7,6 +7,7 @@ import {
   voteEleganceBattleArgument,
   concludeEleganceBattle,
   voteMathShowdown,
+  voteEleganceBattleStep,
   type EleganceBattleArgumentVoteResult,
   type MathBattleArgument,
   type MathBattleFullResponse,
@@ -23,30 +24,28 @@ import {
   ArrowLeft, ChevronUp, ChevronDown, MessageSquare, Trophy,
   Zap, X, Send, Crown, CheckCircle, Flame, Sparkles,
   Target, Users, Shield, TrendingUp, Star, Award, Swords,
-  BarChart3, BookOpen, ChevronRight,
+  BarChart3, BookOpen, ChevronRight, Gem, Eye, Gauge,
+  type LucideIcon,
 } from "lucide-react";
 import { parseSteps } from "./problem-detail";
-import {
-  RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, Tooltip,
-} from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
 
 // ── constants ─────────────────────────────────────────────────────────────────
 
 const AXIS_META = [
-  { key: "elegant",   label: "Elegant",   icon: "💎", color: "#a855f7", bg: "rgba(168,85,247,0.12)", border: "rgba(168,85,247,0.35)" },
-  { key: "rigorous",  label: "Rigorous",  icon: "🛡",  color: "#3b82f6", bg: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.35)"  },
-  { key: "clear",     label: "Clear",     icon: "👁",  color: "#10b981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.35)"  },
-  { key: "efficient", label: "Efficient", icon: "⚡",  color: "#f59e0b", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.35)"  },
+  { key: "elegant",   label: "Elegant",   Icon: Gem,    color: "#a855f7", bg: "rgba(168,85,247,0.12)", border: "rgba(168,85,247,0.35)" },
+  { key: "rigorous",  label: "Rigorous",  Icon: Shield, color: "#3b82f6", bg: "rgba(59,130,246,0.12)",  border: "rgba(59,130,246,0.35)"  },
+  { key: "clear",     label: "Clear",      Icon: Eye,    color: "#10b981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.35)"  },
+  { key: "efficient", label: "Efficient",  Icon: Gauge,  color: "#f59e0b", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.35)"  },
 ] as const;
 
 type AxisKey = "elegant" | "rigorous" | "clear" | "efficient";
 
-const APPROACH_PALETTE: Record<string, { gradient: string; border: string; glow: string; badge: string; text: string; dim: string }> = {
-  algebraic:     { gradient: "from-blue-950/60 to-blue-900/30",     border: "border-blue-500/30",    glow: "shadow-blue-900/40",    badge: "bg-blue-900/50 text-blue-300 border-blue-500/40",    text: "text-blue-300",    dim: "rgba(59,130,246,0.07)"  },
-  geometric:     { gradient: "from-purple-950/60 to-purple-900/30", border: "border-purple-500/30",  glow: "shadow-purple-900/40",  badge: "bg-purple-900/50 text-purple-300 border-purple-500/40", text: "text-purple-300", dim: "rgba(168,85,247,0.07)"  },
-  combinatorial: { gradient: "from-amber-950/60 to-amber-900/30",   border: "border-amber-500/30",   glow: "shadow-amber-900/40",   badge: "bg-amber-900/50 text-amber-300 border-amber-500/40",   text: "text-amber-300",   dim: "rgba(245,158,11,0.07)"  },
-  calculus:      { gradient: "from-emerald-950/60 to-emerald-900/30",border:"border-emerald-500/30", glow: "shadow-emerald-900/40", badge: "bg-emerald-900/50 text-emerald-300 border-emerald-500/40",text:"text-emerald-300",dim: "rgba(16,185,129,0.07)" },
+const APPROACH_PALETTE: Record<string, { border: string; text: string }> = {
+  algebraic:     { border: "border-blue-500/30",    text: "text-blue-600 dark:text-blue-300" },
+  geometric:     { border: "border-purple-500/30",  text: "text-purple-600 dark:text-purple-300" },
+  combinatorial: { border: "border-amber-500/30",   text: "text-amber-600 dark:text-amber-300" },
+  calculus:      { border: "border-emerald-500/30", text: "text-emerald-600 dark:text-emerald-300" },
 };
 const fallbackPalette = APPROACH_PALETTE.algebraic;
 function palette(approach: string) {
@@ -73,22 +72,6 @@ function totalVotes(sol: MathBattleSolution) {
 }
 
 // ── Floating reaction burst ────────────────────────────────────────────────────
-interface Burst { id: number; emoji: string; x: number }
-
-function FloatingBurst({ emoji, x }: { emoji: string; x: number }) {
-  return (
-    <motion.span
-      initial={{ y: 0, opacity: 1, scale: 1 }}
-      animate={{ y: -140, opacity: 0, scale: 2 }}
-      transition={{ duration: 1.4, ease: "easeOut" }}
-      className="pointer-events-none fixed bottom-24 text-2xl z-50 select-none"
-      style={{ left: x }}
-    >
-      {emoji}
-    </motion.span>
-  );
-}
-
 // ── Live score bar ─────────────────────────────────────────────────────────────
 function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSolution }) {
   const a = totalVotes(solA);
@@ -100,14 +83,14 @@ function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSo
   const palB = palette(solB.approach);
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-sm font-bold">
-        <span className={palA.text}>{solA.approach.charAt(0).toUpperCase() + solA.approach.slice(1)}</span>
-        <span className="text-xs text-muted-foreground uppercase tracking-widest">Live Score</span>
-        <span className={palB.text}>{solB.approach.charAt(0).toUpperCase() + solB.approach.slice(1)}</span>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 text-sm font-bold">
+        <span className={cn("truncate", palA.text)}>{solA.approach.charAt(0).toUpperCase() + solA.approach.slice(1)}</span>
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Community score</span>
+        <span className={cn("truncate text-right", palB.text)}>{solB.approach.charAt(0).toUpperCase() + solB.approach.slice(1)}</span>
       </div>
 
-      <div className="relative h-4 rounded-full overflow-hidden bg-muted/60 border border-border/60">
+      <div className="relative h-2.5 overflow-hidden rounded-full border border-border/70 bg-secondary">
         <motion.div
           className="absolute left-0 top-0 h-full rounded-l-full"
           style={{ background: `linear-gradient(to right, ${dnaColor(solA.approach)}, ${dnaColor(solA.approach)}cc)` }}
@@ -121,12 +104,12 @@ function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSo
           transition={{ duration: 1, ease: "easeOut" }}
         />
         {/* Centre divider */}
-        <div className="absolute left-1/2 inset-y-0 -translate-x-1/2 w-0.5 bg-muted/600 z-10" />
+        <div className="absolute inset-y-0 left-1/2 z-10 w-px -translate-x-1/2 bg-background/80" />
       </div>
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>{pA}% · {a} pts</span>
-        <span className="text-muted-foreground">vs</span>
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">versus</span>
         <span>{pB}% · {b} pts</span>
       </div>
     </div>
@@ -134,46 +117,42 @@ function ScoreBar({ solA, solB }: { solA: MathBattleSolution; solB: MathBattleSo
 }
 
 // ── DNA Radar ─────────────────────────────────────────────────────────────────
-function SolutionDNA({ sol, compact }: { sol: MathBattleSolution; compact?: boolean }) {
+function SolutionDNA({ sol }: { sol: MathBattleSolution; compact?: boolean }) {
   const color = dnaColor(sol.approach);
-  const data = AXIS_META.map(({ key, label }) => ({
-    axis: label,
-    value: sol.votes[key as AxisKey] ?? 0,
-  }));
-  const max = Math.max(...data.map(d => d.value), 1);
-  const norm = data.map(d => ({ ...d, value: Math.round((d.value / max) * 100) }));
-  const h = compact ? 140 : 180;
+  const max = Math.max(...AXIS_META.map(({ key }) => sol.votes[key as AxisKey] ?? 0), 1);
 
   return (
-    <div style={{ height: h }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={norm} margin={{ top: 8, right: 18, bottom: 8, left: 18 }}>
-          <PolarGrid stroke="rgba(255,255,255,0.06)" />
-          <PolarAngleAxis dataKey="axis" tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 10 }} />
-          <Radar
-            name={sol.approach}
-            dataKey="value"
-            stroke={color}
-            fill={color}
-            fillOpacity={0.2}
-            strokeWidth={2}
-          />
-          <Tooltip
-            contentStyle={{ background: "#0d0d20", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 11 }}
-            formatter={(v: number) => [`${v}`, "Strength"]}
-          />
-        </RadarChart>
-      </ResponsiveContainer>
+    <div className="grid grid-cols-2 gap-x-5 gap-y-3 rounded-2xl border border-border/70 bg-background/45 p-4">
+      {AXIS_META.map(({ key, label, Icon }) => {
+        const value = sol.votes[key as AxisKey] ?? 0;
+        return (
+          <div key={key} className="min-w-0">
+            <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px]">
+              <span className="flex items-center gap-1.5 font-semibold text-muted-foreground"><Icon className="h-3 w-3" /> {label}</span>
+              <span className="font-bold tabular-nums text-foreground/75">{value}</span>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-secondary">
+              <div className="h-full rounded-full transition-all duration-500" style={{ width: `${value === 0 ? 0 : Math.max(12, (value / max) * 100)}%`, background: color }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+function apiErrorMessage(error: unknown, fallback: string) {
+  return (error as { data?: { error?: string }; message?: string })?.data?.error
+    ?? (error as { message?: string })?.message
+    ?? fallback;
+}
+
 // ── Axis vote tile ─────────────────────────────────────────────────────────────
 function AxisVoteTile({
-  axisKey, icon, label, color, bg, border,
+  axisKey, Icon, label, color, bg, border,
   count, isMine, canVote, onVote, isPending,
 }: {
-  axisKey: AxisKey; icon: string; label: string; color: string; bg: string; border: string;
+  axisKey: AxisKey; Icon: LucideIcon; label: string; color: string; bg: string; border: string;
   count: number; isMine: boolean; canVote: boolean; onVote: () => void; isPending: boolean;
 }) {
   return (
@@ -182,38 +161,39 @@ function AxisVoteTile({
       disabled={!canVote || isPending}
       whileTap={canVote ? { scale: 0.93 } : undefined}
       style={{
-        background: isMine ? bg : "rgba(255,255,255,0.03)",
-        border: `1px solid ${isMine ? border : "rgba(255,255,255,0.08)"}`,
-        boxShadow: isMine ? `0 0 14px ${bg}` : "none",
+        background: isMine ? bg : "color-mix(in srgb, var(--color-background) 72%, transparent)",
+        border: `1px solid ${isMine ? border : "var(--color-border)"}`,
+        boxShadow: isMine ? `0 8px 28px ${bg}` : "none",
       }}
       className={cn(
-        "flex flex-col items-center gap-1 py-3 px-1 rounded-xl text-center transition-all",
-        canVote && !isMine && "hover:bg-muted hover:border-border",
+        "flex min-w-0 items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all",
+        canVote && !isMine && "hover:-translate-y-0.5 hover:bg-secondary",
         isMine && "ring-1",
       )}
     >
-      <span className="text-xl leading-none">{icon}</span>
-      <span className="text-[11px] font-black tabular-nums" style={{ color: isMine ? color : "rgba(255,255,255,0.7)" }}>
-        {count}
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ color, background: bg }}><Icon className="h-4 w-4" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[11px] font-bold text-foreground">{label}</span>
+        <span className="block text-[9px] text-muted-foreground">{isMine ? "Your choice" : canVote ? "Select solution" : "Community votes"}</span>
       </span>
-      <span className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">{label}</span>
-      {isMine && (
-        <span className="text-[8px] font-bold uppercase tracking-wider" style={{ color }}>✓ Voted</span>
-      )}
+      <span className="text-sm font-black tabular-nums" style={{ color: isMine ? color : "var(--color-foreground)" }}>{count}</span>
     </motion.button>
   );
 }
 
 // ── Step card ─────────────────────────────────────────────────────────────────
 function StepCard({
-  step, stepIndex, soundness, argCount, isActive, onJustify,
+  step, stepIndex, soundness, argCount, isActive, onJustify, canVote, isPending, onVote,
 }: {
   step: { label: string | null; content: string };
   stepIndex: number;
-  soundness: { up: number; down: number };
+  soundness: { up: number; down: number; myVote?: "sound" | "unsound" | null };
   argCount: number;
   isActive: boolean;
   onJustify: () => void;
+  canVote: boolean;
+  isPending: boolean;
+  onVote: (vote: "sound" | "unsound") => void;
 }) {
   const voteCount = soundness.up + soundness.down;
   const hasSoundnessVotes = voteCount > 0;
@@ -242,13 +222,36 @@ function StepCard({
       </div>
 
       <div className="flex items-center gap-3 mt-2.5 pl-9">
-        {/* Soundness mini-bar */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5" aria-label="Community step assessment">
           <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
             <div className="h-full rounded-full transition-all" style={{ width: `${health * 100}%`, background: hColor }} />
           </div>
-          <span className="text-[10px] text-emerald-400 font-semibold">▲{soundness.up}</span>
-          <span className="text-[10px] text-red-400/60">▼{soundness.down}</span>
+          <button
+            type="button"
+            aria-label={`Mark step ${stepIndex + 1} as sound`}
+            aria-pressed={soundness.myVote === "sound"}
+            disabled={!canVote || isPending}
+            onClick={() => onVote("sound")}
+            className={cn(
+              "rounded-md px-1.5 py-1 text-[10px] font-semibold transition-colors disabled:cursor-not-allowed",
+              soundness.myVote === "sound" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300" : "text-muted-foreground hover:bg-emerald-500/10 hover:text-emerald-600 disabled:hover:bg-transparent",
+            )}
+          >
+            Sound {soundness.up}
+          </button>
+          <button
+            type="button"
+            aria-label={`Mark step ${stepIndex + 1} as needing review`}
+            aria-pressed={soundness.myVote === "unsound"}
+            disabled={!canVote || isPending}
+            onClick={() => onVote("unsound")}
+            className={cn(
+              "rounded-md px-1.5 py-1 text-[10px] transition-colors disabled:cursor-not-allowed",
+              soundness.myVote === "unsound" ? "bg-red-500/15 text-red-600 dark:text-red-300" : "text-muted-foreground hover:bg-red-500/10 hover:text-red-600 disabled:hover:bg-transparent",
+            )}
+          >
+            Review {soundness.down}
+          </button>
         </div>
         <button
           onClick={onJustify}
@@ -293,7 +296,7 @@ function ArgumentCard({
         return { ...old, arguments: patch(old.arguments) };
       });
     },
-    onError: () => toast({ title: "Failed to vote", variant: "destructive" }),
+    onError: (error) => toast({ title: apiErrorMessage(error, "Failed to vote"), variant: "destructive" }),
   });
 
   const replyMut = useMutation({
@@ -313,7 +316,7 @@ function ArgumentCard({
       });
       setReplyText(""); setShowReply(false);
     },
-    onError: () => toast({ title: "Failed to post reply", variant: "destructive" }),
+    onError: (error) => toast({ title: apiErrorMessage(error, "Failed to post reply"), variant: "destructive" }),
   });
 
   const net = arg.upvotes - arg.downvotes;
@@ -324,6 +327,8 @@ function ArgumentCard({
         {/* Vote column */}
         <div className="flex flex-col items-center gap-0.5 pt-1 shrink-0">
           <button
+            type="button"
+            aria-label={`Upvote ${arg.userName ?? "anonymous"}'s annotation`}
             onClick={() => viewerId && voteMut.mutate("up")}
             disabled={!viewerId || voteMut.isPending}
             className={cn(
@@ -337,6 +342,8 @@ function ArgumentCard({
             {net}
           </span>
           <button
+            type="button"
+            aria-label={`Downvote ${arg.userName ?? "anonymous"}'s annotation`}
             onClick={() => viewerId && voteMut.mutate("down")}
             disabled={!viewerId || voteMut.isPending}
             className={cn(
@@ -352,7 +359,7 @@ function ArgumentCard({
         <div className="flex-1 min-w-0">
           <div className="rounded-xl bg-muted/60 border border-border/60 px-3 py-2.5 group-hover:border-border transition-colors">
             <div className="flex items-center gap-2 mb-1.5">
-              <span className="w-5 h-5 rounded-full bg-indigo-900/60 border border-indigo-500/30 flex items-center justify-center text-[9px] font-black text-indigo-300">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-indigo-500/30 bg-indigo-500/10 text-[9px] font-black text-indigo-500 dark:text-indigo-300">
                 {(arg.userName ?? "?").charAt(0).toUpperCase()}
               </span>
               <span className="text-[11px] font-semibold text-foreground/70">{arg.userName ?? "Anonymous"}</span>
@@ -421,7 +428,7 @@ function JustificationPanel({
       });
       setDraft("");
     },
-    onError: () => toast({ title: "Failed to post", variant: "destructive" }),
+    onError: (error) => toast({ title: apiErrorMessage(error, "Failed to post"), variant: "destructive" }),
   });
 
   return (
@@ -433,6 +440,8 @@ function JustificationPanel({
           <p className="text-sm font-semibold mt-0.5 truncate">{stepLabel}</p>
         </div>
         <button
+          type="button"
+          aria-label="Close step analysis"
           onClick={onClose}
           className="shrink-0 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
         >
@@ -496,7 +505,7 @@ function JustificationPanel({
 // ── Solution card ─────────────────────────────────────────────────────────────
 function SolutionCard({
   sol, args, problemId, viewerId, queryKey,
-  activePanel, onOpenPanel, myAxisVotes, onAxisVote, rank, isLive, canParticipate, isPendingAxisVote,
+  activePanel, onOpenPanel, myAxisVotes, onAxisVote, onStepVote, rank, isLive, canParticipate, isPendingAxisVote, isPendingStepVote,
 }: {
   sol: MathBattleSolution;
   args: MathBattleArgument[];
@@ -507,7 +516,9 @@ function SolutionCard({
   onOpenPanel: (solutionId: number, stepIndex: number) => void;
   myAxisVotes: Partial<Record<AxisKey, number | null>>;
   onAxisVote: (axis: AxisKey, solutionId: number) => void;
+  onStepVote: (solutionId: number, stepIndex: number, vote: "sound" | "unsound") => void;
   isPendingAxisVote: boolean;
+  isPendingStepVote: boolean;
   rank: number;
   isLive: boolean;
   canParticipate: boolean;
@@ -516,6 +527,7 @@ function SolutionCard({
   const steps = parseSteps(sol.body);
   const total = totalVotes(sol);
   const color = dnaColor(sol.approach);
+  const isOwnSolution = !!viewerId && viewerId === sol.userId;
 
   const topArgs = args
     .filter(a => a.solutionId === sol.id && !a.parentId)
@@ -523,61 +535,75 @@ function SolutionCard({
     .slice(0, 3);
 
   return (
-    <div className={cn(
-      "rounded-2xl border flex flex-col overflow-hidden shadow-2xl",
-      `bg-gradient-to-b ${pal.gradient}`,
-      pal.border,
-    )}>
+    <div
+      className="relative flex flex-col overflow-hidden rounded-[24px] border bg-card/90 shadow-[0_24px_70px_rgba(15,23,42,0.10)]"
+      style={{ borderColor: `${color}35` }}
+    >
+      <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: `linear-gradient(90deg, transparent, ${color}, transparent)` }} />
       {/* ── Card header ── */}
-      <div className="px-5 pt-5 pb-4 space-y-4 border-b border-border/60">
+      <div className="space-y-5 border-b border-border/60 px-4 pb-5 pt-5 sm:px-6 sm:pt-6">
         {/* Approach badge + score */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2.5 flex-wrap">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border font-serif text-lg font-bold" style={{ color, borderColor: `${color}35`, background: `${color}12` }}>
+              {sol.approach.charAt(0).toUpperCase()}
+            </span>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
             {rank === 0 && isLive && (
-              <span className="flex items-center gap-1 text-[10px] font-black text-yellow-400 bg-yellow-400/10 border border-yellow-400/25 px-2 py-0.5 rounded-full">
-                <Crown className="w-3 h-3" /> LEADING
+                  <span className="flex items-center gap-1 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-500">
+                    <Crown className="h-2.5 w-2.5" /> Leading
               </span>
             )}
-            <span className={cn("text-sm font-black uppercase tracking-wide", pal.text)}>
-              {sol.approach}
-            </span>
-            <span className="text-xs text-muted-foreground">by {sol.userName}</span>
+                <span className={cn("text-sm font-bold capitalize", pal.text)}>{sol.approach} approach</span>
+              </div>
+              <p className="mt-1 truncate text-xs text-muted-foreground">Solution by <span className="font-semibold text-foreground/75">{sol.userName}</span></p>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="text-xl font-black text-foreground tabular-nums">{total}</span>
-            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">pts</span>
+          <div className="shrink-0 text-right">
+            <span className="block text-2xl font-semibold tabular-nums text-foreground">{total}</span>
+            <span className="block text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">community pts</span>
           </div>
         </div>
 
-        {/* DNA Radar */}
+        {/* Community profile */}
         <SolutionDNA sol={sol} compact />
 
         {/* Axis vote grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {AXIS_META.map(({ key, icon, label, color: c, bg, border }) => (
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Evaluate this solution</p>
+            {isLive && canParticipate && viewerId && <span className="text-[10px] text-muted-foreground">One choice per quality</span>}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+          {AXIS_META.map(({ key, Icon, label, color: c, bg, border }) => (
             <AxisVoteTile
               key={key}
               axisKey={key as AxisKey}
-              icon={icon}
+              Icon={Icon}
               label={label}
               color={c}
               bg={bg}
               border={border}
               count={sol.votes[key as AxisKey]}
               isMine={myAxisVotes[key as AxisKey] === sol.id}
-              canVote={isLive && canParticipate && !!viewerId}
+              canVote={isLive && canParticipate && !!viewerId && !isOwnSolution}
               onVote={() => onAxisVote(key as AxisKey, sol.id)}
               isPending={isPendingAxisVote}
             />
           ))}
+          </div>
         </div>
         {!viewerId && isLive && (
           <p className="text-[11px] text-center text-muted-foreground/60">Sign in to cast your votes</p>
         )}
+        {isOwnSolution && isLive && (
+          <p className="text-center text-[11px] text-muted-foreground">Your solution is visible to voters; self-voting is disabled.</p>
+        )}
       </div>
 
       {/* ── Steps ── */}
-      <div className="px-5 py-4 space-y-2 flex-1">
+      <div className="flex-1 space-y-2 px-4 py-5 sm:px-6">
         <div className="flex items-center gap-2 mb-3">
           <BarChart3 className="w-3.5 h-3.5 text-muted-foreground" />
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
@@ -585,9 +611,9 @@ function SolutionCard({
             <span className="ml-1 text-muted-foreground/50">({steps.length})</span>
           </p>
         </div>
-        <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5">
+        <div className="max-h-[26rem] space-y-2 overflow-y-auto pr-0.5">
           {steps.map((step, i) => {
-            const soundness = sol.stepSoundness?.[i] ?? { up: 0, down: 0 };
+            const soundness = sol.stepSoundness?.[i] ?? { up: 0, down: 0, myVote: null };
             const argCount = args.filter(a => a.solutionId === sol.id && a.stepIndex === i && !a.parentId).length;
             const isActive = activePanel?.solutionId === sol.id && activePanel?.stepIndex === i;
             return (
@@ -599,6 +625,9 @@ function SolutionCard({
                 argCount={argCount}
                 isActive={isActive}
                 onJustify={() => onOpenPanel(sol.id, i)}
+                canVote={isLive && canParticipate && !!viewerId && !isOwnSolution}
+                isPending={isPendingStepVote}
+                onVote={(vote) => onStepVote(sol.id, i, vote)}
               />
             );
           })}
@@ -610,7 +639,7 @@ function SolutionCard({
 
       {/* ── Top discussions ── */}
       {topArgs.length > 0 && (
-        <div className="px-5 py-4 border-t border-border/60 space-y-3">
+        <div className="space-y-3 border-t border-border/60 px-4 py-5 sm:px-6">
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Top Discussions</p>
           <div className="space-y-2">
             {topArgs.map(a => (
@@ -648,10 +677,10 @@ function VerdictPanel({
   });
 
   const cats = [
-    { label: "Most Elegant",   icon: "💎", color: "text-purple-400", bg: "bg-purple-900/20 border-purple-500/25", cat: data.categories?.mostElegant  },
-    { label: "Most Rigorous",  icon: "🛡",  color: "text-blue-400",   bg: "bg-blue-900/20 border-blue-500/25",    cat: data.categories?.mostRigorous },
-    { label: "Clearest",       icon: "👁",  color: "text-emerald-400",bg: "bg-emerald-900/20 border-emerald-500/25", cat: data.categories?.clearest  },
-    { label: "Most Efficient", icon: "⚡",  color: "text-amber-400",  bg: "bg-amber-900/20 border-amber-500/25",   cat: data.categories?.mostEfficient},
+    { label: "Most Elegant",   Icon: Gem,   color: "text-purple-500", bg: "bg-purple-500/[0.06] border-purple-500/25", cat: data.categories?.mostElegant  },
+    { label: "Most Rigorous",  Icon: Shield,color: "text-blue-500",   bg: "bg-blue-500/[0.06] border-blue-500/25",    cat: data.categories?.mostRigorous },
+    { label: "Clearest",       Icon: Eye,   color: "text-emerald-500",bg: "bg-emerald-500/[0.06] border-emerald-500/25", cat: data.categories?.clearest  },
+    { label: "Most Efficient", Icon: Gauge, color: "text-amber-500",  bg: "bg-amber-500/[0.06] border-amber-500/25",   cat: data.categories?.mostEfficient},
   ] as const;
 
   return (
@@ -688,11 +717,11 @@ function VerdictPanel({
           <Award className="w-3.5 h-3.5" /> Category Awards
         </p>
         <div className="grid grid-cols-2 gap-3">
-          {cats.map(({ label, icon, color, bg, cat }) => {
+          {cats.map(({ label, Icon, color, bg, cat }) => {
             const sol = cat ? data.solutions.find(s => s.id === cat.solutionId) : null;
             return (
               <div key={label} className={cn("rounded-xl border p-4 flex items-start gap-3", bg)}>
-                <span className={cn("text-2xl mt-0.5 shrink-0")}>{icon}</span>
+                <span className={cn("mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background/60", color)}><Icon className="h-4 w-4" /></span>
                 <div className="min-w-0">
                   <p className={cn("text-[10px] uppercase tracking-widest font-semibold", color)}>{label}</p>
                   {sol ? (
@@ -763,7 +792,7 @@ export default function MathEleganceBattle() {
 
   const queryKey = ["elegance-battle-full", problemId, viewerId ?? "guest"];
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey,
     queryFn: () => getEleganceBattleFull(problemId),
     enabled: !!problemId && isSessionLoaded,
@@ -772,10 +801,17 @@ export default function MathEleganceBattle() {
 
   const [activePanel, setActivePanel] = useState<{ solutionId: number; stepIndex: number } | null>(null);
   const [activeTab, setActiveTab] = useState<"arena" | "verdict">("arena");
-  const [bursts, setBursts] = useState<Burst[]>([]);
-  const burstId = useRef(0);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+
+  useEffect(() => {
+    if (!activePanel) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActivePanel(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [activePanel]);
 
   // ── Axis voting — wired to `voteMathShowdown` ──────────────────────────────
   const axisVoteMut = useMutation({
@@ -816,17 +852,57 @@ export default function MathEleganceBattle() {
     axisVoteMut.mutate({ axis, solutionId });
   };
 
+  const stepVoteMut = useMutation({
+    mutationFn: ({ solutionId, stepIndex, vote }: { solutionId: number; stepIndex: number; vote: "sound" | "unsound" }) =>
+      voteEleganceBattleStep(problemId, solutionId, stepIndex, { vote }),
+    onSuccess: (result, variables) => {
+      queryClient.setQueryData(queryKey, (old: MathBattleFullResponse | undefined) => {
+        if (!old) return old;
+        return {
+          ...old,
+          solutions: old.solutions.map((solution) => {
+            if (solution.id !== variables.solutionId) return solution;
+            const stepSoundness = [...solution.stepSoundness];
+            stepSoundness[variables.stepIndex] = result;
+            return { ...solution, stepSoundness };
+          }),
+        };
+      });
+    },
+    onError: (error) => toast({ title: apiErrorMessage(error, "Step assessment failed"), variant: "destructive" }),
+  });
+
   const myAxisVotes: Partial<Record<AxisKey, number | null>> = data?.myAxisVotes ?? {};
 
   // Sort by total votes
   const ranked = data ? [...data.solutions].sort((a, b) => totalVotes(b) - totalVotes(a)) : [];
 
-  // Real unique participant count — authors who have posted at least one argument
-  const uniqueParticipants = data
-    ? new Set(data.arguments.map((a: { userId: string }) => a.userId)).size
-    : 0;
+  const participantIds = new Set<string>();
+  if (data) {
+    data.solutions.forEach((solution) => participantIds.add(solution.userId));
+    const collectArgumentAuthors = (argumentsList: MathBattleArgument[]) => {
+      argumentsList.forEach((argument) => {
+        participantIds.add(argument.userId);
+        collectArgumentAuthors(argument.replies ?? []);
+      });
+    };
+    collectArgumentAuthors(data.arguments);
+  }
+  const uniqueParticipants = participantIds.size;
 
   // ── Loading ──────────────────────────────────────────────────────────────────
+  if (!Number.isInteger(problemId) || problemId <= 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-4 text-foreground">
+        <div className="max-w-sm space-y-4 text-center">
+          <Swords className="mx-auto h-12 w-12 text-muted-foreground/30" />
+          <p className="font-semibold">This battle link is invalid.</p>
+          <Button variant="outline" onClick={() => navigate("/math")}><ArrowLeft className="mr-2 h-4 w-4" /> Mathematics Arena</Button>
+        </div>
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-background text-foreground">
@@ -847,7 +923,11 @@ export default function MathEleganceBattle() {
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
         <div className="text-center space-y-4 px-4">
           <Swords className="w-12 h-12 text-muted-foreground/30 mx-auto" />
-          <p className="text-muted-foreground">Could not load this battle.</p>
+          <div>
+            <p className="font-semibold">Could not load this battle.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Check your connection and try again.</p>
+          </div>
+          <Button onClick={() => void refetch()} disabled={isFetching}>{isFetching ? "Retrying…" : "Try Again"}</Button>
           <Button variant="outline" onClick={() => navigate(`/math/problem/${problemId}`)}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Problem
           </Button>
@@ -863,13 +943,35 @@ export default function MathEleganceBattle() {
   const participantId = canParticipate ? viewerId : null;
 
   return (
-    <div className="min-h-[calc(100dvh-4rem)] bg-background text-foreground">
-      {/* Floating reaction bursts */}
-      <AnimatePresence>
-        {bursts.map(b => <FloatingBurst key={b.id} emoji={b.emoji} x={b.x} />)}
-      </AnimatePresence>
-
-      <div className="container mx-auto px-4 py-5 max-w-6xl space-y-5">
+    <div className="elegance-battle-page min-h-[calc(100dvh-4rem)] overflow-x-hidden bg-background text-foreground">
+      <style>{`
+        .elegance-battle-page {
+          isolation: isolate;
+          background:
+            radial-gradient(circle at 8% 0%, rgba(99,102,241,.12), transparent 34rem),
+            radial-gradient(circle at 96% 24%, rgba(168,85,247,.08), transparent 30rem),
+            var(--color-background);
+        }
+        .elegance-battle-page::before {
+          content: "";
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          pointer-events: none;
+          opacity: .12;
+          background-image:
+            linear-gradient(rgba(99,102,241,.11) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(99,102,241,.11) 1px, transparent 1px);
+          background-size: 46px 46px;
+          mask-image: linear-gradient(to bottom, black, transparent 68%);
+        }
+        .battle-hero-surface {
+          background:
+            linear-gradient(125deg, color-mix(in srgb, var(--color-card) 95%, #6366f1 5%), color-mix(in srgb, var(--color-card) 98%, #a855f7 2%));
+          box-shadow: 0 28px 90px rgba(15,23,42,.10), inset 0 1px rgba(255,255,255,.04);
+        }
+      `}</style>
+      <div className="container mx-auto max-w-7xl space-y-6 px-4 py-5 sm:px-6 sm:py-7">
 
         {/* ── Back nav ── */}
         <button
@@ -881,25 +983,25 @@ export default function MathEleganceBattle() {
         </button>
 
         {/* ── Hero ── */}
-        <div className="relative overflow-hidden rounded-2xl border border-border bg-card p-6 md:p-8">
+        <div className="battle-hero-surface relative overflow-hidden rounded-[24px] border border-indigo-500/15 p-5 sm:rounded-[30px] sm:p-8">
           {/* Ambient gradients */}
           <div className="absolute inset-0 pointer-events-none">
-            <div className="absolute top-0 left-0 w-80 h-80 bg-blue-600/8 rounded-full blur-3xl" />
-            <div className="absolute top-0 right-0 w-80 h-80 bg-purple-600/8 rounded-full blur-3xl" />
-            <div className="absolute bottom-0 left-1/2 w-60 h-40 bg-indigo-500/6 rounded-full blur-2xl" />
+            <div className="absolute -left-16 -top-20 h-72 w-72 rounded-full bg-indigo-500/[0.08] blur-3xl" />
+            <div className="absolute -right-16 -top-20 h-72 w-72 rounded-full bg-purple-500/[0.07] blur-3xl" />
+            <div className="absolute right-[8%] top-2 hidden select-none font-serif text-8xl text-indigo-400/[0.045] lg:block">∴</div>
           </div>
 
           <div className="relative space-y-5">
             {/* Title row */}
             <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div className="space-y-1">
+              <div className="max-w-3xl space-y-3">
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-900/50">
-                      <Swords className="w-4 h-4 text-white" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg shadow-indigo-900/20">
+                      <Swords className="h-4 w-4 text-white" />
                     </div>
-                    <span className="font-black text-lg tracking-tight bg-gradient-to-r from-indigo-300 via-purple-300 to-blue-300 bg-clip-text text-transparent">
-                      ELEGANCE BATTLE
+                    <span className="text-[11px] font-bold uppercase tracking-[0.19em] text-indigo-400">
+                      Treffin Mathematics · Elegance Battle
                     </span>
                   </div>
 
@@ -915,12 +1017,13 @@ export default function MathEleganceBattle() {
                     </Badge>
                   )}
                 </div>
-                <h1 className="text-lg md:text-xl font-bold text-foreground/90 leading-snug max-w-2xl">
-                  {data.problemTitle}
+                <h1 className="font-serif text-2xl font-semibold leading-tight tracking-[-0.025em] text-foreground sm:text-4xl">
+                  Which solution best balances insight and proof?
                 </h1>
+                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{data.problemTitle}</p>
               </div>
 
-              <div className="flex items-center gap-4 shrink-0 text-muted-foreground text-xs">
+              <div className="flex shrink-0 items-center gap-3 rounded-xl border border-border/70 bg-background/45 px-3 py-2 text-xs text-muted-foreground">
                 {uniqueParticipants > 0 && (
                   <span className="flex items-center gap-1.5">
                     <Users className="w-3.5 h-3.5" />
@@ -936,7 +1039,7 @@ export default function MathEleganceBattle() {
 
             {/* Live score bar */}
             {solA && solB && (
-              <div className="max-w-xl">
+              <div className="max-w-2xl rounded-2xl border border-border/70 bg-background/45 p-4">
                 <ScoreBar solA={solA} solB={solB} />
               </div>
             )}
@@ -950,7 +1053,7 @@ export default function MathEleganceBattle() {
                   return (
                     <div
                       key={sol.id}
-                      className={cn("flex items-center gap-2 px-3 py-2 rounded-xl border shrink-0 transition-all", pal.border)}
+                      className={cn("flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 transition-all", pal.border)}
                       style={{ background: `${color}10` }}
                     >
                       {i === 0 && <Trophy className="w-3.5 h-3.5 text-yellow-400" />}
@@ -965,21 +1068,31 @@ export default function MathEleganceBattle() {
           </div>
         </div>
 
+        {!data.battle && (
+          <div className="flex flex-col gap-4 rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-semibold text-foreground">This comparison has not entered a live Elegance Battle.</p>
+              <p className="mt-1 text-sm text-muted-foreground">You can review every solution below; voting and annotations open when a battle is started.</p>
+            </div>
+            <Button variant="outline" onClick={() => navigate(`/math/problem/${problemId}/showdown`)}>Open comparison</Button>
+          </div>
+        )}
+
         {/* ── Tab switcher ── */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex gap-1 bg-muted/60 rounded-xl p-1 border border-border/60">
+          <div className="flex gap-1 rounded-xl border border-border/70 bg-card/80 p-1 shadow-sm">
             {(["arena", "verdict"] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
                 className={cn(
-                  "px-5 py-2 text-sm font-semibold rounded-lg transition-all",
+                  "rounded-lg px-5 py-2 text-sm font-semibold transition-all",
                   activeTab === tab
-                    ? "bg-accent text-accent-foreground shadow-sm"
+                    ? "bg-indigo-600 text-white shadow-sm shadow-indigo-900/20"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted",
                 )}
               >
-                {tab === "arena" ? "⚔️ Arena" : "🏆 Verdict"}
+                {tab === "arena" ? "Compare solutions" : "Verdict & awards"}
               </button>
             ))}
           </div>
@@ -1013,7 +1126,7 @@ export default function MathEleganceBattle() {
             ) : (
               <div
                 className={cn(
-                  "gap-5",
+                  "gap-6",
                   data.solutions.length >= 2 ? "grid xl:grid-cols-2" : "max-w-2xl mx-auto",
                   activePanel && "xl:pr-[400px]",
                 )}
@@ -1021,7 +1134,7 @@ export default function MathEleganceBattle() {
                 {/* VS divider — desktop */}
                 {data.solutions.length >= 2 && (
                   <div className="hidden xl:flex absolute left-1/2 top-20 -translate-x-1/2 z-10 pointer-events-none">
-                    <div className="w-10 h-10 rounded-full bg-background text-foreground border-2 border-border flex items-center justify-center text-xs font-black text-foreground/80 shadow-2xl">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border border-indigo-500/25 bg-background text-[10px] font-bold uppercase tracking-wider text-indigo-400 shadow-xl">
                       VS
                     </div>
                   </div>
@@ -1043,7 +1156,9 @@ export default function MathEleganceBattle() {
                     }
                     myAxisVotes={myAxisVotes}
                     onAxisVote={handleAxisVote}
+                    onStepVote={(solutionId, stepIndex, vote) => stepVoteMut.mutate({ solutionId, stepIndex, vote })}
                     isPendingAxisVote={axisVoteMut.isPending}
+                    isPendingStepVote={stepVoteMut.isPending}
                     rank={ranked.findIndex(r => r.id === sol.id)}
                     isLive={isLive}
                     canParticipate={canParticipate}

@@ -63,6 +63,45 @@ test.describe("authenticated Treffin contracts", () => {
     await expect(page.getByText("Join the conversation")).toHaveCount(0);
     if (isMobile) await expectNoHorizontalOverflow(page);
   });
+  test("knowledge posts render valid dates and use the connected like endpoint", async ({ page }) => {
+    let likeRequests = 0;
+    const createdAt = new Date(Date.now() - 65 * 60 * 1000).toISOString();
+    const knowledgePost = {
+      id: 91,
+      type: "knowledge",
+      authorId: 2,
+      authorName: "Treffin Research",
+      authorTitle: "Research Desk",
+      authorAvatar: null,
+      isVerified: true,
+      createdAt,
+      content: "A connected knowledge post with a canonical timestamp.",
+      title: null,
+      excerpt: null,
+      imageUrl: null,
+      topic: "Science",
+      readTime: null,
+      likes: 4,
+      comments: 0,
+      reposts: 0,
+      saved: false,
+      isAnonymous: false,
+      isOwner: false,
+      liked: false,
+    };
+    await page.route("**/api/feed**", (route) => json(route, [knowledgePost]));
+    await page.route("**/api/posts/91/like", (route) => {
+      likeRequests += 1;
+      return json(route, { ...knowledgePost, likes: 5, liked: true });
+    });
+
+    await page.goto("/");
+    await expect(page.getByTestId("card-knowledge-91")).toContainText("1h ago");
+    await expect(page.getByText("Invalid Date", { exact: true })).toHaveCount(0);
+    await page.getByTestId("button-like-91").click();
+    await expect.poll(() => likeRequests).toBe(1);
+    await expect(page.getByTestId("button-like-91")).toContainText("5");
+  });
   test("home restores authoritative daily vote and weekly submission state", async ({ page, isMobile }) => {
     await page.addInitScript(() => localStorage.setItem("treffin_daily_vote_44", "support"));
     await page.route("**/api/stats/daily-question", (route) => json(route, {
@@ -468,7 +507,7 @@ test.describe("authenticated Treffin contracts", () => {
       categoryId: 1,
       categoryName: "Algebra",
       categoryColor: "#8b5cf6",
-      categoryIcon: "�",
+      categoryIcon: "ä",
       difficulty: "intermediate",
       hints: [],
       communityDifficulty: null,
@@ -518,7 +557,7 @@ test.describe("authenticated Treffin contracts", () => {
       return value ? JSON.parse(value).title : null;
     });
     expect(storedTitle).toBe("My updated draft");
-    await expect(page.getByPlaceholder("Article title…")).toBeVisible();
+    await expect(titleInput).toBeVisible();
 
     const layout = await page.evaluate(() => {
       const main = document.querySelector("main")?.getBoundingClientRect();
@@ -534,13 +573,14 @@ test.describe("authenticated Treffin contracts", () => {
   });
   test("Elegant Battle records the first vote immediately and remains phone-contained", async ({ page, isMobile }) => {
     let elegantVotes = 0;
+    let soundVotes = 0;
     const fullResponse = () => ({
       problemId: 7,
       problemTitle: "Prove that the sample identity is invariant",
       battle: { debateId: 70, isLive: true, isEnded: false, verdict: null, verdictAuthor: null, canParticipate: true, canConclude: false },
       solutions: [
-        { id: 11, userId: "author-a", userName: "Ada", approach: "Algebraic", body: "**Step 1:** Expand both sides.\n\n**Step 2:** Cancel equal terms.", steps: ["**Step 1:** Expand both sides.", "**Step 2:** Cancel equal terms."], stepSoundness: [{ up: 0, down: 0 }, { up: 0, down: 0 }], votes: { elegant: elegantVotes, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 90 },
-        { id: 12, userId: "author-b", userName: "Emmy", approach: "Geometric", body: "**Step 1:** Construct the symmetry.\n\n**Step 2:** Read the invariant.", steps: ["**Step 1:** Construct the symmetry.", "**Step 2:** Read the invariant."], stepSoundness: [{ up: 0, down: 0 }, { up: 0, down: 0 }], votes: { elegant: 0, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 75 },
+        { id: 11, userId: "author-a", userName: "Ada", approach: "Algebraic", body: "**Step 1:** Expand both sides.\n\n**Step 2:** Cancel equal terms.", steps: ["**Step 1:** Expand both sides.", "**Step 2:** Cancel equal terms."], stepSoundness: [{ up: soundVotes, down: 0, myVote: soundVotes ? "sound" : null }, { up: 0, down: 0, myVote: null }], votes: { elegant: elegantVotes, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 90 },
+        { id: 12, userId: "author-b", userName: "Emmy", approach: "Geometric", body: "**Step 1:** Construct the symmetry.\n\n**Step 2:** Read the invariant.", steps: ["**Step 1:** Construct the symmetry.", "**Step 2:** Read the invariant."], stepSoundness: [{ up: 0, down: 0, myVote: null }, { up: 0, down: 0, myVote: null }], votes: { elegant: 0, clear: 0, rigorous: 0, efficient: 0 }, isAccepted: false, solvingTime: 75 },
       ],
       arguments: [],
       myAxisVotes: { elegant: elegantVotes ? 11 : null, clear: null, rigorous: null, efficient: null },
@@ -567,12 +607,20 @@ test.describe("authenticated Treffin contracts", () => {
         myVotes: { elegant: 11, clear: null, rigorous: null, efficient: null },
       });
     });
+    await page.route("**/api/math/problems/7/elegance-battle/solutions/11/steps/0/vote", async (route) => {
+      soundVotes = 1;
+      return json(route, { up: soundVotes, down: 0, myVote: "sound" });
+    });
 
-    await page.goto("/math/problem/7/elegance-battle");
-    await expect(page.getByText("ELEGANCE BATTLE", { exact: true })).toBeVisible();
+    await page.goto("/math/problem/7/elegance-battle", { waitUntil: "domcontentloaded" });
+    await expect(page.getByText(/Treffin Mathematics · Elegance Battle/i)).toBeVisible();
     const elegantButton = page.getByRole("button", { name: /Elegant/i }).first();
     await elegantButton.click();
     await expect(elegantButton).toContainText("1");
+    const soundButton = page.getByRole("button", { name: /Mark step 1 as sound/i }).first();
+    await soundButton.click();
+    await expect(soundButton).toHaveAttribute("aria-pressed", "true");
+    await expect(soundButton).toContainText("1");
 
     if (isMobile) {
       await expectNoHorizontalOverflow(page);

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { MathProblemDetailDifficultyDistribution } from './mathProblemDetailDifficultyDistribution';
+import type { MathProblemDetailProblemType } from './mathProblemDetailProblemType';
 import type { MathProblemDetailReactionCounts } from './mathProblemDetailReactionCounts';
 import type { MathSolution } from './mathSolution';
 
@@ -23,6 +24,17 @@ export interface MathProblemDetail {
   categoryIcon?: string;
   difficulty: string;
   hints?: string[];
+  problemType?: MathProblemDetailProblemType;
+  tags?: string[];
+  /** @nullable */
+  estimatedMinutes?: number | null;
+  /** @nullable */
+  prerequisites?: string | null;
+  /** @nullable */
+  sourceUrl?: string | null;
+  /** @nullable */
+  sourceAttribution?: string | null;
+  isOriginal?: boolean;
   /** @nullable */
   communityDifficulty?: number | null;
   difficultyVoteCount?: number;

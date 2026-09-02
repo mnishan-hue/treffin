@@ -1,10 +1,11 @@
 import { useLocation } from "wouter";
 import { Link } from "wouter";
-import { Calculator, Trophy, BarChart2, Bookmark, Star } from "lucide-react";
+import { Calculator, Trophy, BarChart2, Bookmark, Star, PenLine } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/math",             label: "Problems",  Icon: Calculator },
   { href: "/math/potw",        label: "POTW",      Icon: Star       },
+  { href: "/math/post",        label: "Ask",       Icon: PenLine    },
   { href: "/math/contests",    label: "Contests",  Icon: Trophy     },
   { href: "/math/leaderboard", label: "Rankings",  Icon: BarChart2  },
   { href: "/math/bookmarks",   label: "Bookmarks", Icon: Bookmark   },
@@ -32,6 +33,7 @@ export function MathBottomNav() {
       <div style={{ display: "flex", alignItems: "stretch" }}>
         {NAV_ITEMS.map(({ href, label, Icon }) => {
           const active = isActive(href);
+          const primary = href === "/math/post";
           return (
             <Link key={href} href={href} style={{ flex: 1 }}>
               <div
@@ -41,9 +43,9 @@ export function MathBottomNav() {
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 3,
-                  padding: "10px 4px 9px",
+                  padding: "9px 2px 8px",
                   transition: "color 0.15s",
-                  color: active ? "hsl(231 89% 68%)" : "var(--color-muted-foreground)",
+                  color: active || primary ? "hsl(231 89% 68%)" : "var(--color-muted-foreground)",
                   position: "relative",
                 }}
               >
@@ -60,14 +62,26 @@ export function MathBottomNav() {
                     }}
                   />
                 )}
+                <span style={primary ? {
+                  width: 30,
+                  height: 24,
+                  borderRadius: 8,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "white",
+                  background: "linear-gradient(135deg,#6366f1,#3b82f6)",
+                  boxShadow: "0 4px 12px rgba(99,102,241,0.35)",
+                } : undefined}>
                 <Icon
-                  size={active ? 20 : 19}
+                  size={primary ? 16 : active ? 20 : 19}
                   strokeWidth={active ? 2.2 : 1.8}
                   style={{ transition: "all 0.15s" }}
                 />
+                </span>
                 <span
                   style={{
-                    fontSize: "0.62rem",
+                    fontSize: "0.58rem",
                     fontWeight: active ? 700 : 500,
                     letterSpacing: "0.02em",
                     lineHeight: 1,

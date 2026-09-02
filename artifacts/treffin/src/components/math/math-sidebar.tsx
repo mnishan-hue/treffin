@@ -218,7 +218,7 @@ export function MathSidebar() {
                   { href: "/math/notifications", icon: "🔔", label: "Notifications",    sub: "Activity & replies" },
                 ]
               : []),
-            { href: "/math/post", icon: "✏️", label: "Post a Problem", sub: "Share with community" },
+            { href: "/math/post", icon: "✏️", label: "Ask a Math Problem", sub: "Challenge the community" },
           ].map(({ href, icon, label, sub }) => (
             <Link key={href} href={href}>
               <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-muted/50 cursor-pointer transition-colors -mx-2">

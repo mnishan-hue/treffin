@@ -5,6 +5,7 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MathProblemProblemType } from './mathProblemProblemType';
 import type { MathProblemReactionCounts } from './mathProblemReactionCounts';
 
 export interface MathProblem {
@@ -21,6 +22,17 @@ export interface MathProblem {
   categoryIcon?: string;
   difficulty: string;
   hints?: string[];
+  problemType?: MathProblemProblemType;
+  tags?: string[];
+  /** @nullable */
+  estimatedMinutes?: number | null;
+  /** @nullable */
+  prerequisites?: string | null;
+  /** @nullable */
+  sourceUrl?: string | null;
+  /** @nullable */
+  sourceAttribution?: string | null;
+  isOriginal?: boolean;
   /** @nullable */
   communityDifficulty?: number | null;
   difficultyVoteCount?: number;

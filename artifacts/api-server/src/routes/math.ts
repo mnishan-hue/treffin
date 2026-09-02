@@ -234,6 +234,13 @@ async function buildProblemResponse(
     categoryIcon: category?.icon ?? "∑",
     difficulty: problem.difficulty,
     hints: parseHints(problem.hints),
+    problemType: problem.problemType,
+    tags: parseHints(problem.tags),
+    estimatedMinutes: problem.estimatedMinutes ?? null,
+    prerequisites: problem.prerequisites ?? null,
+    sourceUrl: problem.sourceUrl ?? null,
+    sourceAttribution: problem.sourceAttribution ?? null,
+    isOriginal: problem.isOriginal,
     communityDifficulty: difficultyStats?.average ?? null,
     difficultyVoteCount: difficultyStats?.voteCount ?? 0,
     difficultyDistribution: difficultyStats?.distribution ?? {},
@@ -423,7 +430,40 @@ router.post("/math/problems", async (req, res) => {
     const userId = clerkUserId;
     const userName = req.betterAuthSession?.user?.name ?? "Anonymous";
 
-    const { title, body, categoryId, difficulty, hints } = parsed.data;
+    const {
+      title,
+      body,
+      categoryId,
+      difficulty,
+      hints,
+      problemType = "solve",
+      tags = [],
+      estimatedMinutes,
+      prerequisites,
+      sourceUrl,
+      sourceAttribution,
+      isOriginal = true,
+    } = parsed.data;
+
+    const normalizedTitle = title.trim();
+    const normalizedBody = body.trim();
+    if (normalizedTitle.length < 8 || normalizedBody.length < 20) {
+      res.status(400).json({ error: "Title or problem statement is too short" });
+      return;
+    }
+    if (!isOriginal && !sourceAttribution?.trim()) {
+      res.status(400).json({ error: "Source attribution is required for adapted problems" });
+      return;
+    }
+    if (sourceUrl?.trim()) {
+      try {
+        const url = new URL(sourceUrl.trim());
+        if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error("unsupported protocol");
+      } catch {
+        res.status(400).json({ error: "Source URL must be a valid HTTP or HTTPS address" });
+        return;
+      }
+    }
 
     // Verify category exists
     const [cat] = await db
@@ -440,11 +480,20 @@ router.post("/math/problems", async (req, res) => {
       .values({
         userId,
         userName,
-        title,
-        body,
+        title: normalizedTitle,
+        body: normalizedBody,
         categoryId,
         difficulty,
         hints: hints ?? null,
+        problemType,
+        tags: tags.length > 0
+          ? JSON.stringify([...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))])
+          : null,
+        estimatedMinutes: estimatedMinutes ?? null,
+        prerequisites: prerequisites?.trim() || null,
+        sourceUrl: sourceUrl?.trim() || null,
+        sourceAttribution: sourceAttribution?.trim() || null,
+        isOriginal,
       })
       .returning();
 
@@ -2085,6 +2134,7 @@ router.post("/math/notifications/read", async (req, res) => {
 // ──────────────────────────────────────────────────────────────
 // Elegance Battle — dedicated page routes
 // GET  /math/problems/:id/elegance-battle/full
+// POST /math/problems/:id/elegance-battle/solutions/:solutionId/steps/:stepIndex/vote
 // POST /math/problems/:id/elegance-battle/arguments
 // POST /math/problems/:id/elegance-battle/arguments/:argId/vote
 // POST /math/problems/:id/elegance-battle/conclude
@@ -2196,12 +2246,16 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
     }
 
     const stepVotesBySolution = new Map<string, { up: number; down: number }>();
+    const myStepVotes = new Map<string, "sound" | "unsound">();
     for (const vote of stepVotes) {
       const key = `${vote.solutionId}:${vote.stepIndex}`;
       const current = stepVotesBySolution.get(key) ?? { up: 0, down: 0 };
       if (vote.vote === "sound") current.up += 1;
       else current.down += 1;
       stepVotesBySolution.set(key, current);
+      if (viewerId && vote.userId === viewerId && (vote.vote === "sound" || vote.vote === "unsound")) {
+        myStepVotes.set(key, vote.vote);
+      }
     }
 
     const solutionsOut = solutions.map((solution) => {
@@ -2214,7 +2268,10 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
         approach: solution.approach,
         body: solution.body,
         steps: steps.map((step) => step.label ? `**${step.label}:** ${step.content}` : step.content),
-        stepSoundness: steps.map((_, stepIndex) => stepVotesBySolution.get(`${solution.id}:${stepIndex}`) ?? { up: 0, down: 0 }),
+        stepSoundness: steps.map((_, stepIndex) => {
+          const key = `${solution.id}:${stepIndex}`;
+          return { ...(stepVotesBySolution.get(key) ?? { up: 0, down: 0 }), myVote: myStepVotes.get(key) ?? null };
+        }),
         votes: liveVotes,
         isAccepted: solution.isAccepted,
         solvingTime: solution.solvingTime ?? null,
@@ -2265,11 +2322,82 @@ router.get("/math/problems/:id/elegance-battle/full", async (req, res) => {
         mostElegant: mostElegant ? { solutionId: mostElegant.id, votes: mostElegant.votes.elegant } : null,
         mostRigorous: mostRigorous ? { solutionId: mostRigorous.id, votes: mostRigorous.votes.rigorous } : null,
         clearest: clearest ? { solutionId: clearest.id, votes: clearest.votes.clear } : null,
-        mostEfficient: mostEfficient ? { solutionId: mostEfficient.id, stepCount: parseStepsServer(mostEfficient.body).length } : null,
+        mostEfficient: mostEfficient ? { solutionId: mostEfficient.id, votes: mostEfficient.votes.efficient } : null,
       },
     });
   } catch (err) {
     req.log.error({ err }, "getEleganceBattleFull failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+router.post("/math/problems/:id/elegance-battle/solutions/:solutionId/steps/:stepIndex/vote", async (req, res) => {
+  try {
+    const id = Number(req.params["id"]);
+    const solutionId = Number(req.params["solutionId"]);
+    const stepIndex = Number(req.params["stepIndex"]);
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(solutionId) || solutionId <= 0 || !Number.isInteger(stepIndex) || stepIndex < 0) {
+      res.status(400).json({ error: "Invalid problem, solution, or step" }); return;
+    }
+    const userId = req.betterAuthSession?.user?.id ?? null;
+    if (!userId) { res.status(401).json({ error: "Sign in required" }); return; }
+    const { vote } = (req.body ?? {}) as { vote?: string };
+    if (vote !== "sound" && vote !== "unsound") {
+      res.status(400).json({ error: "vote must be 'sound' or 'unsound'" }); return;
+    }
+
+    const result = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(${solutionId}, ${stepIndex})`);
+      const [solution] = await tx.select({ id: mathSolutionsTable.id, userId: mathSolutionsTable.userId, body: mathSolutionsTable.body })
+        .from(mathSolutionsTable)
+        .where(and(eq(mathSolutionsTable.id, solutionId), eq(mathSolutionsTable.problemId, id)))
+        .limit(1);
+      if (!solution || !validMathBattleStep(stepIndex, parseStepsServer(solution.body).length)) return { kind: "missing" as const };
+      if (solution.userId === userId) return { kind: "self" as const };
+
+      const [battle] = await tx.select().from(debatesTable)
+        .where(and(eq(debatesTable.mathProblemId, id), eq(debatesTable.category, "Mathematics")))
+        .orderBy(desc(debatesTable.createdAt))
+        .limit(1);
+      if (!battle || !battleAcceptsInteraction(battle)) return { kind: "closed" as const };
+      if (!mathBattlePermissions(battle, userId, process.env["ADMIN_CLERK_ID"]).canParticipate) {
+        return { kind: "moderator" as const };
+      }
+
+      const whereMine = and(
+        eq(mathBattleStepVotesTable.userId, userId),
+        eq(mathBattleStepVotesTable.solutionId, solutionId),
+        eq(mathBattleStepVotesTable.stepIndex, stepIndex),
+      );
+      const [existing] = await tx.select().from(mathBattleStepVotesTable).where(whereMine).limit(1);
+      let myVote: "sound" | "unsound" | null = vote;
+      if (!existing) {
+        await tx.insert(mathBattleStepVotesTable).values({ userId, problemId: id, solutionId, stepIndex, vote });
+      } else if (existing.vote === vote) {
+        await tx.delete(mathBattleStepVotesTable).where(whereMine);
+        myVote = null;
+      } else {
+        await tx.update(mathBattleStepVotesTable).set({ vote, problemId: id }).where(whereMine);
+      }
+
+      const counts = await tx.select({ vote: mathBattleStepVotesTable.vote, count: sql<number>`count(*)::int` })
+        .from(mathBattleStepVotesTable)
+        .where(and(eq(mathBattleStepVotesTable.problemId, id), eq(mathBattleStepVotesTable.solutionId, solutionId), eq(mathBattleStepVotesTable.stepIndex, stepIndex)))
+        .groupBy(mathBattleStepVotesTable.vote);
+      return {
+        kind: "ok" as const,
+        up: counts.find((row) => row.vote === "sound")?.count ?? 0,
+        down: counts.find((row) => row.vote === "unsound")?.count ?? 0,
+        myVote,
+      };
+    });
+
+    if (result.kind === "missing") { res.status(404).json({ error: "Solution step not found" }); return; }
+    if (result.kind === "self") { res.status(403).json({ error: "You cannot assess your own solution" }); return; }
+    if (result.kind === "closed") { res.status(409).json({ error: "This elegance battle is not open for voting" }); return; }
+    if (result.kind === "moderator") { res.status(403).json({ error: "Battle moderators cannot vote" }); return; }
+    res.json({ up: result.up, down: result.down, myVote: result.myVote });
+  } catch (err) {
+    req.log.error({ err }, "voteEleganceBattleStep failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });

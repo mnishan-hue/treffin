@@ -15,10 +15,19 @@ export function formatNumber(num: number): string {
   return num.toString();
 }
 
-export function timeAgo(dateString: string): string {
+export function timeAgo(dateString: string | null | undefined): string {
+  if (!dateString) return "Recently";
+
+  // Accept relative values from older cached/API responses without attempting
+  // to parse them as calendar dates.
+  if (/^(?:just now|recently|\d+\s*(?:s|m|h|d|w)\s+ago|\d+\s+(?:day|days|week|weeks)\s+ago)$/i.test(dateString.trim())) {
+    return dateString.trim();
+  }
+
   const date = new Date(dateString);
+  if (!Number.isFinite(date.getTime())) return "Recently";
   const now = new Date();
-  const seconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+  const seconds = Math.max(0, Math.floor((now.getTime() - date.getTime()) / 1000));
 
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.floor(seconds / 60);

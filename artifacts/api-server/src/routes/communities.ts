@@ -541,13 +541,7 @@ router.get("/communities/:id/posts", async (req, res) => {
       likedRows.forEach(r => likedSet.add(r.postId));
     }
 
-    const now = new Date();
     const result = postRows.map(({ post, author }) => {
-      const diff = now.getTime() - post.createdAt.getTime();
-      const hours = Math.floor(diff / 3600000);
-      const mins = Math.floor(diff / 60000);
-      const timeAgo = hours > 0 ? `${hours}h ago` : mins > 0 ? `${mins}m ago` : "just now";
-
       return {
         id: post.id,
         type: post.type,
@@ -556,7 +550,7 @@ router.get("/communities/:id/posts", async (req, res) => {
         authorTitle: author?.title ?? "",
         authorAvatar: author?.avatarUrl ?? null,
         isVerified: author?.isVerified ?? false,
-        createdAt: timeAgo,
+        createdAt: post.createdAt.toISOString(),
         content: post.content ?? null,
         title: post.title ?? null,
         excerpt: post.excerpt ?? null,
@@ -735,7 +729,7 @@ router.post("/communities/:id/posts", async (req, res) => {
       authorTitle: postAuthor.title ?? "",
       authorAvatar: postAuthor.avatarUrl ?? null,
       isVerified: postAuthor.isVerified ?? false,
-      createdAt: "just now",
+      createdAt: post.createdAt.toISOString(),
       content: post.content ?? null,
       title: null,
       excerpt: null,

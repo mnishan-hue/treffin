@@ -116,7 +116,7 @@ function FloatingDebateCard({
 }) {
   return (
     <motion.div
-      className="absolute hidden xl:block w-60 rounded-2xl border border-border p-4 backdrop-blur-md"
+      className="pointer-events-none absolute hidden xl:block w-60 rounded-2xl border border-border p-4 backdrop-blur-md"
       style={{
         background: "hsl(var(--card) / 0.82)",
         boxShadow: "0 8px 32px rgba(37,99,235,0.15), inset 0 1px 0 hsl(var(--foreground) / 0.05)",
@@ -350,11 +350,11 @@ export default function About() {
   ];
 
   return (
-    <div className="relative min-h-screen bg-background text-foreground overflow-x-hidden scrollbar-none">
+    <div className="relative min-h-screen bg-background text-foreground overflow-x-clip scrollbar-none">
       <AtmosphericBg />
 
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
-      <nav className="relative z-10 flex items-center justify-between px-6 md:px-12 py-5 border-b border-border/60 backdrop-blur-sm">
+      <nav className="sticky top-0 z-50 flex items-center justify-between px-6 md:px-12 py-5 border-b border-border/60 bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/70">
         <button onClick={() => setLocation("/home")} className="flex items-center gap-3">
           <img
             src={`${import.meta.env.BASE_URL}treffin-mark.png`}
