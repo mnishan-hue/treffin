@@ -6,11 +6,40 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { MathProblemInputDifficulty } from './mathProblemInputDifficulty';
+import type { MathProblemInputProblemType } from './mathProblemInputProblemType';
 
 export interface MathProblemInput {
+  /**
+     * @minLength 8
+     * @maxLength 180
+     */
   title: string;
+  /**
+     * @minLength 20
+     * @maxLength 20000
+     */
   body: string;
   categoryId: number;
   difficulty: MathProblemInputDifficulty;
+  /** @maxLength 10000 */
   hints?: string;
+  problemType?: MathProblemInputProblemType;
+  /**
+     * @maxItems 8
+     * @items.minLength 1
+     * @items.maxLength 32
+     */
+  tags?: string[];
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  estimatedMinutes?: number;
+  /** @maxLength 500 */
+  prerequisites?: string;
+  /** @maxLength 1000 */
+  sourceUrl?: string;
+  /** @maxLength 500 */
+  sourceAttribution?: string;
+  isOriginal?: boolean;
 }

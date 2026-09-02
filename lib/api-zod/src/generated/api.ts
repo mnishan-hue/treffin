@@ -2592,6 +2592,13 @@ export const ListMathProblemsResponseItem = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -2610,12 +2617,41 @@ export const ListMathProblemsResponse = zod.array(ListMathProblemsResponseItem)
 /**
  * @summary Post a new math problem
  */
+export const createMathProblemBodyTitleMin = 8;
+export const createMathProblemBodyTitleMax = 180;
+
+export const createMathProblemBodyBodyMin = 20;
+export const createMathProblemBodyBodyMax = 20000;
+
+export const createMathProblemBodyHintsMax = 10000;
+
+export const createMathProblemBodyTagsItemMax = 32;
+
+export const createMathProblemBodyTagsMax = 8;
+
+export const createMathProblemBodyEstimatedMinutesMax = 1440;
+
+export const createMathProblemBodyPrerequisitesMax = 500;
+
+export const createMathProblemBodySourceUrlMax = 1000;
+
+export const createMathProblemBodySourceAttributionMax = 500;
+
+
+
 export const CreateMathProblemBody = zod.object({
-  "title": zod.string(),
-  "body": zod.string(),
+  "title": zod.string().min(createMathProblemBodyTitleMin).max(createMathProblemBodyTitleMax),
+  "body": zod.string().min(createMathProblemBodyBodyMin).max(createMathProblemBodyBodyMax),
   "categoryId": zod.number(),
   "difficulty": zod.enum(['beginner', 'intermediate', 'advanced', 'olympiad', 'research']),
-  "hints": zod.string().optional()
+  "hints": zod.string().max(createMathProblemBodyHintsMax).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string().min(1).max(createMathProblemBodyTagsItemMax)).max(createMathProblemBodyTagsMax).optional(),
+  "estimatedMinutes": zod.number().min(1).max(createMathProblemBodyEstimatedMinutesMax).optional(),
+  "prerequisites": zod.string().max(createMathProblemBodyPrerequisitesMax).optional(),
+  "sourceUrl": zod.string().max(createMathProblemBodySourceUrlMax).optional(),
+  "sourceAttribution": zod.string().max(createMathProblemBodySourceAttributionMax).optional(),
+  "isOriginal": zod.boolean().optional()
 })
 
 export const CreateMathProblemResponse = zod.object({
@@ -2631,6 +2667,13 @@ export const CreateMathProblemResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -2665,6 +2708,13 @@ export const GetMathProblemResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "difficultyDistribution": zod.record(zod.string(), zod.number()).optional(),
@@ -2796,7 +2846,8 @@ export const GetEleganceBattleFullResponse = zod.object({
   "steps": zod.array(zod.string()),
   "stepSoundness": zod.array(zod.object({
   "up": zod.number(),
-  "down": zod.number()
+  "down": zod.number(),
+  "myVote": zod.union([zod.literal('sound'),zod.literal('unsound'),zod.literal(null)]).nullable()
 })),
   "votes": zod.object({
   "elegant": zod.number(),
@@ -2887,6 +2938,30 @@ export const PostEleganceBattleArgumentResponse = zod.object({
   "isPinned": zod.boolean(),
   "myVote": zod.union([zod.literal('up'),zod.literal('down'),zod.literal(null)]).nullable(),
   "replies": zod.array(zod.unknown())
+})
+
+
+/**
+ * @summary Toggle a sound or unsound assessment for one solution step
+ */
+export const voteEleganceBattleStepPathStepIndexMin = 0;
+
+
+
+export const VoteEleganceBattleStepParams = zod.object({
+  "id": zod.coerce.number(),
+  "solutionId": zod.coerce.number(),
+  "stepIndex": zod.coerce.number().min(voteEleganceBattleStepPathStepIndexMin)
+})
+
+export const VoteEleganceBattleStepBody = zod.object({
+  "vote": zod.enum(['sound', 'unsound'])
+})
+
+export const VoteEleganceBattleStepResponse = zod.object({
+  "up": zod.number(),
+  "down": zod.number(),
+  "myVote": zod.union([zod.literal('sound'),zod.literal('unsound'),zod.literal(null)]).nullable()
 })
 
 
@@ -3122,6 +3197,13 @@ export const GetMathProblemOfWeekResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "difficultyDistribution": zod.record(zod.string(), zod.number()).optional(),
@@ -3260,6 +3342,13 @@ export const GetMathUserProfileResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -3331,6 +3420,13 @@ export const UpdateMathUserProfileResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -3414,6 +3510,13 @@ export const GetMathContestResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -3531,6 +3634,13 @@ export const GetRelatedMathProblemsResponseItem = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -3569,6 +3679,13 @@ export const GetMathBookmarksResponseItem = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),
@@ -3614,6 +3731,13 @@ export const AddMathBookmarkResponse = zod.object({
   "categoryIcon": zod.string().optional(),
   "difficulty": zod.string(),
   "hints": zod.array(zod.string()).optional(),
+  "problemType": zod.enum(['solve', 'prove', 'explain', 'counterexample', 'optimize', 'open']).optional(),
+  "tags": zod.array(zod.string()).optional(),
+  "estimatedMinutes": zod.number().nullish(),
+  "prerequisites": zod.string().nullish(),
+  "sourceUrl": zod.string().nullish(),
+  "sourceAttribution": zod.string().nullish(),
+  "isOriginal": zod.boolean().optional(),
   "communityDifficulty": zod.number().nullish(),
   "difficultyVoteCount": zod.number().optional(),
   "isProblemOfWeek": zod.boolean(),

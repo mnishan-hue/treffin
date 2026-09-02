@@ -100,6 +100,7 @@ import type {
   MathAnnotationInput,
   MathBattleArgument,
   MathBattleFullResponse,
+  MathBattleStepSoundness,
   MathBookmark,
   MathBookmarkInput,
   MathCategory,
@@ -161,6 +162,7 @@ import type {
   UserSyncInput,
   UserSyncResult,
   VoteEleganceBattleArgumentInput,
+  VoteEleganceBattleStepInput,
   VoteInput,
   WeeklyChallenge,
   WeeklyChallengeInput,
@@ -9650,6 +9652,82 @@ export const usePostEleganceBattleArgument = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getPostEleganceBattleArgumentMutationOptions(options));
+    }
+
+export const getVoteEleganceBattleStepUrl = (id: number,
+    solutionId: number,
+    stepIndex: number,) => {
+
+
+
+
+  return `/api/math/problems/${id}/elegance-battle/solutions/${solutionId}/steps/${stepIndex}/vote`
+}
+
+/**
+ * @summary Toggle a sound or unsound assessment for one solution step
+ */
+export const voteEleganceBattleStep = async (id: number,
+    solutionId: number,
+    stepIndex: number,
+    voteEleganceBattleStepInput: VoteEleganceBattleStepInput, options?: RequestInit): Promise<MathBattleStepSoundness> => {
+
+  return customFetch<MathBattleStepSoundness>(getVoteEleganceBattleStepUrl(id,solutionId,stepIndex),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(voteEleganceBattleStepInput)
+  }
+);}
+
+
+
+
+
+export const getVoteEleganceBattleStepMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voteEleganceBattleStep>>, TError,{id: number;solutionId: number;stepIndex: number;data: BodyType<VoteEleganceBattleStepInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof voteEleganceBattleStep>>, TError,{id: number;solutionId: number;stepIndex: number;data: BodyType<VoteEleganceBattleStepInput>}, TContext> => {
+
+const mutationKey = ['voteEleganceBattleStep'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof voteEleganceBattleStep>>, {id: number;solutionId: number;stepIndex: number;data: BodyType<VoteEleganceBattleStepInput>}> = (props) => {
+          const {id,solutionId,stepIndex,data} = props ?? {};
+
+          return  voteEleganceBattleStep(id,solutionId,stepIndex,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type VoteEleganceBattleStepMutationResult = NonNullable<Awaited<ReturnType<typeof voteEleganceBattleStep>>>
+    export type VoteEleganceBattleStepMutationBody = BodyType<VoteEleganceBattleStepInput>
+    export type VoteEleganceBattleStepMutationError = ErrorType<void>
+
+    /**
+ * @summary Toggle a sound or unsound assessment for one solution step
+ */
+export const useVoteEleganceBattleStep = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof voteEleganceBattleStep>>, TError,{id: number;solutionId: number;stepIndex: number;data: BodyType<VoteEleganceBattleStepInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof voteEleganceBattleStep>>,
+        TError,
+        {id: number;solutionId: number;stepIndex: number;data: BodyType<VoteEleganceBattleStepInput>},
+        TContext
+      > => {
+      return useMutation(getVoteEleganceBattleStepMutationOptions(options));
     }
 
 export const getVoteEleganceBattleArgumentUrl = (id: number,

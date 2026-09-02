@@ -965,7 +965,7 @@ function MathDebatesSidebar({
       {/* Post a problem */}
       <Link href="/math/post">
         <div className="rounded-xl border border-border/60 p-4 hover:bg-muted/20 transition-colors cursor-pointer">
-          <div className="text-[13px] font-bold mb-1">✏ Post a Problem</div>
+          <div className="text-[13px] font-bold mb-1">✏ Ask a Math Problem</div>
           <p className="text-[11px] text-muted-foreground">
             Share your own challenge with the community.
           </p>
@@ -1738,34 +1738,84 @@ export default function ProblemDetail() {
         <main className="min-w-0">
 
           {/* Problem Card */}
-          <div className="bg-card border border-border rounded-xl p-4 sm:p-8 shadow-sm mb-6 relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: problem.categoryColor }} />
+          <div
+            className="mb-6 overflow-hidden rounded-[24px] border border-indigo-500/15 p-4 shadow-[0_28px_80px_rgba(15,23,42,0.10)] sm:p-8"
+            style={{
+              position: "relative",
+              background: "linear-gradient(145deg, color-mix(in srgb, var(--color-card) 96%, #6366f1 4%), color-mix(in srgb, var(--color-card) 98%, #22d3ee 2%))",
+            }}
+          >
+            <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/70 to-transparent" />
+            <div aria-hidden="true" className="pointer-events-none absolute -right-4 top-1 select-none font-serif text-8xl text-indigo-400/[0.045]">∑</div>
 
             <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
               <div className="space-y-2">
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-muted-foreground flex items-center gap-1">
+                <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+                  <span className="flex items-center gap-1.5 rounded-full border px-3 py-1 font-bold" style={{ color: problem.categoryColor, borderColor: `${problem.categoryColor}35`, background: `${problem.categoryColor}10` }}>
                     <span style={{ color: problem.categoryColor }}>{problem.categoryIcon}</span>
                     {problem.categoryName}
                   </span>
-                  <span className="text-muted-foreground/30">&bull;</span>
-                  <span className="text-foreground/80 font-medium">{problem.userName}</span>
+                  <span className="rounded-full border border-border bg-background/50 px-3 py-1 text-muted-foreground">
+                    Problem #{problem.id}
+                  </span>
                 </div>
-                <h1 className="text-3xl font-serif font-bold text-foreground">
+                <h1 className="max-w-3xl break-words font-serif text-2xl font-semibold leading-tight tracking-[-0.025em] text-foreground sm:text-4xl">
                   <MathText text={problem.title} />
                 </h1>
+                <p className="text-xs text-muted-foreground">Proposed by <span className="font-semibold text-foreground/80">{problem.userName}</span></p>
               </div>
               <DifficultyBadge difficulty={problem.difficulty} />
             </div>
 
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              {problem.problemType && (
+                <span className="rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[11px] font-bold capitalize text-indigo-400">
+                  {problem.problemType === "open" ? "Open inquiry" : problem.problemType}
+                </span>
+              )}
+              {problem.estimatedMinutes != null && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/50 px-3 py-1 text-[11px] text-muted-foreground">
+                  <Timer className="h-3 w-3" /> About {problem.estimatedMinutes} min
+                </span>
+              )}
+              {problem.tags?.map((tag) => (
+                <span key={tag} className="rounded-full bg-secondary px-2.5 py-1 text-[11px] text-muted-foreground">
+                  #{tag}
+                </span>
+              ))}
+            </div>
+
+            {problem.prerequisites && (
+              <div className="mb-5 rounded-xl border border-border bg-secondary/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                <span className="font-bold text-foreground">Helpful prerequisites:</span> {problem.prerequisites}
+              </div>
+            )}
+
             {/* Structured problem body */}
-            <div className="mb-8">
+            <div
+              className="mb-8 overflow-x-auto rounded-2xl border border-border p-4 sm:p-6"
+              style={{
+                background: "linear-gradient(90deg, rgba(99,102,241,.045) 1px, transparent 1px), linear-gradient(rgba(99,102,241,.045) 1px, transparent 1px), color-mix(in srgb, var(--color-background) 91%, var(--color-card))",
+                backgroundSize: "24px 24px",
+              }}
+            >
               <ProblemBodyRenderer body={problem.body} />
             </div>
 
             {/* Progressive hints */}
             {problem.hints && problem.hints.length > 0 && (
               <ProgressiveHints hints={problem.hints} />
+            )}
+
+            {!problem.isOriginal && problem.sourceAttribution && (
+              <div className="mb-6 rounded-xl border border-border bg-background/60 px-4 py-3 text-xs leading-5 text-muted-foreground">
+                <span className="font-bold text-foreground">Source:</span>{" "}
+                {problem.sourceUrl ? (
+                  <a href={problem.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
+                    {problem.sourceAttribution}
+                  </a>
+                ) : problem.sourceAttribution}
+              </div>
             )}
 
             <div className="pt-6 border-t border-border flex justify-between items-center flex-wrap gap-3">

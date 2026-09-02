@@ -1235,6 +1235,18 @@ export interface MathCategory {
   problemCount?: number;
 }
 
+export type MathProblemProblemType = typeof MathProblemProblemType[keyof typeof MathProblemProblemType];
+
+
+export const MathProblemProblemType = {
+  solve: 'solve',
+  prove: 'prove',
+  explain: 'explain',
+  counterexample: 'counterexample',
+  optimize: 'optimize',
+  open: 'open',
+} as const;
+
 export type MathProblemReactionCounts = {[key: string]: number};
 
 export interface MathProblem {
@@ -1251,6 +1263,17 @@ export interface MathProblem {
   categoryIcon?: string;
   difficulty: string;
   hints?: string[];
+  problemType?: MathProblemProblemType;
+  tags?: string[];
+  /** @nullable */
+  estimatedMinutes?: number | null;
+  /** @nullable */
+  prerequisites?: string | null;
+  /** @nullable */
+  sourceUrl?: string | null;
+  /** @nullable */
+  sourceAttribution?: string | null;
+  isOriginal?: boolean;
   /** @nullable */
   communityDifficulty?: number | null;
   difficultyVoteCount?: number;
@@ -1287,6 +1310,18 @@ export interface MathSolution {
   createdAt: string;
 }
 
+export type MathProblemDetailProblemType = typeof MathProblemDetailProblemType[keyof typeof MathProblemDetailProblemType];
+
+
+export const MathProblemDetailProblemType = {
+  solve: 'solve',
+  prove: 'prove',
+  explain: 'explain',
+  counterexample: 'counterexample',
+  optimize: 'optimize',
+  open: 'open',
+} as const;
+
 export type MathProblemDetailDifficultyDistribution = {[key: string]: number};
 
 export type MathProblemDetailReactionCounts = {[key: string]: number};
@@ -1305,6 +1340,17 @@ export interface MathProblemDetail {
   categoryIcon?: string;
   difficulty: string;
   hints?: string[];
+  problemType?: MathProblemDetailProblemType;
+  tags?: string[];
+  /** @nullable */
+  estimatedMinutes?: number | null;
+  /** @nullable */
+  prerequisites?: string | null;
+  /** @nullable */
+  sourceUrl?: string | null;
+  /** @nullable */
+  sourceAttribution?: string | null;
+  isOriginal?: boolean;
   /** @nullable */
   communityDifficulty?: number | null;
   difficultyVoteCount?: number;
@@ -1347,12 +1393,52 @@ export const MathProblemInputDifficulty = {
   research: 'research',
 } as const;
 
+export type MathProblemInputProblemType = typeof MathProblemInputProblemType[keyof typeof MathProblemInputProblemType];
+
+
+export const MathProblemInputProblemType = {
+  solve: 'solve',
+  prove: 'prove',
+  explain: 'explain',
+  counterexample: 'counterexample',
+  optimize: 'optimize',
+  open: 'open',
+} as const;
+
 export interface MathProblemInput {
+  /**
+     * @minLength 8
+     * @maxLength 180
+     */
   title: string;
+  /**
+     * @minLength 20
+     * @maxLength 20000
+     */
   body: string;
   categoryId: number;
   difficulty: MathProblemInputDifficulty;
+  /** @maxLength 10000 */
   hints?: string;
+  problemType?: MathProblemInputProblemType;
+  /**
+     * @maxItems 8
+     * @items.minLength 1
+     * @items.maxLength 32
+     */
+  tags?: string[];
+  /**
+     * @minimum 1
+     * @maximum 1440
+     */
+  estimatedMinutes?: number;
+  /** @maxLength 500 */
+  prerequisites?: string;
+  /** @maxLength 1000 */
+  sourceUrl?: string;
+  /** @maxLength 500 */
+  sourceAttribution?: string;
+  isOriginal?: boolean;
 }
 
 export type MathSolutionInputApproach = typeof MathSolutionInputApproach[keyof typeof MathSolutionInputApproach];
@@ -1693,9 +1779,34 @@ export interface MathShowdownDetail {
   myVotes: MathShowdownMyVotes;
 }
 
+/**
+ * @nullable
+ */
+export type MathBattleStepSoundnessMyVote = typeof MathBattleStepSoundnessMyVote[keyof typeof MathBattleStepSoundnessMyVote] | null;
+
+
+export const MathBattleStepSoundnessMyVote = {
+  sound: 'sound',
+  unsound: 'unsound',
+} as const;
+
 export interface MathBattleStepSoundness {
   up: number;
   down: number;
+  /** @nullable */
+  myVote: MathBattleStepSoundnessMyVote;
+}
+
+export type VoteEleganceBattleStepInputVote = typeof VoteEleganceBattleStepInputVote[keyof typeof VoteEleganceBattleStepInputVote];
+
+
+export const VoteEleganceBattleStepInputVote = {
+  sound: 'sound',
+  unsound: 'unsound',
+} as const;
+
+export interface VoteEleganceBattleStepInput {
+  vote: VoteEleganceBattleStepInputVote;
 }
 
 /**

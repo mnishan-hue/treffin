@@ -799,7 +799,7 @@ export default function MathHub() {
               ) : (
                 <Link href="/math/post">
                   <button style={{ padding: "10px 24px", borderRadius: 11, fontSize: "0.85rem", fontWeight: 700, background: "hsl(231 89% 65%)", color: "white", border: "none", cursor: "pointer", boxShadow: "0 4px 16px rgba(99,102,241,0.35)" }}>
-                    Post the first problem →
+                    Ask the first problem →
                   </button>
                 </Link>
               )}
@@ -953,7 +953,7 @@ export default function MathHub() {
         <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
           <Link href="/math/post">
             <button style={{ padding: "9px 20px", borderRadius: 10, fontSize: "0.8rem", fontWeight: 700, background: "var(--color-secondary)", border: "1px solid var(--color-border)", color: "var(--color-muted-foreground)", cursor: "pointer" }}>
-              + Post a Problem
+              + Ask a Math Problem
             </button>
           </Link>
           <a href="#math-problems">

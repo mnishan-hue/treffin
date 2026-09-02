@@ -5,8 +5,11 @@
  * Treffin API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { MathBattleStepSoundnessMyVote } from './mathBattleStepSoundnessMyVote';
 
 export interface MathBattleStepSoundness {
   up: number;
   down: number;
+  /** @nullable */
+  myVote: MathBattleStepSoundnessMyVote;
 }

@@ -115,7 +115,15 @@ function PostMenu({ postId, isOwner, onDelete, onReported }: { postId: number; i
   );
 }
 
-export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost; onInteraction?: () => void }) {
+export function PostCard({
+  post: initialPost,
+  onInteraction,
+  variant = "default",
+}: {
+  post: FeedPost;
+  onInteraction?: () => void;
+  variant?: "default" | "knowledge";
+}) {
   const { toggleSaved, isSaved, triggerRep } = useAppContext();
   const { user, isSignedIn } = useSession();
   const [post, setPost] = useState(initialPost);
@@ -326,6 +334,7 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
       data-testid={`card-post-${post.id}`}
       className={cn(
         "bg-card border border-border/60 rounded-xl hover:border-primary/35 hover:shadow-[0_0_20px_rgba(124,58,237,0.08)] transition-all group",
+        variant === "knowledge" && "overflow-hidden border-blue-500/25 bg-gradient-to-br from-primary/10 via-card to-card hover:border-blue-500/45",
         deleting && "opacity-50 pointer-events-none"
       )}
     >
@@ -381,6 +390,17 @@ export function PostCard({ post: initialPost, onInteraction }: { post: FeedPost;
             </div>
 
             <div className="mt-2">
+              {variant === "knowledge" && (
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-orange-500 text-[11px] font-black text-white shadow-[0_0_10px_rgba(249,115,22,0.3)]">
+                    T
+                  </span>
+                  <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-primary">Treffin Insight</span>
+                  <span className="ml-auto rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400">
+                    Knowledge
+                  </span>
+                </div>
+              )}
               {post.topic && (
                 <span className="inline-block text-[11px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full mb-2 uppercase tracking-wide">
                   {post.topic}

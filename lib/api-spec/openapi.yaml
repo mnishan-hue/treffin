@@ -2862,6 +2862,32 @@ paths:
         "404": { description: Not found }
         "409": { description: Battle ended }
 
+  /math/problems/{id}/elegance-battle/solutions/{solutionId}/steps/{stepIndex}/vote:
+    post:
+      operationId: voteEleganceBattleStep
+      tags: [math]
+      summary: Toggle a sound or unsound assessment for one solution step
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: solutionId, in: path, required: true, schema: { type: integer } }
+        - { name: stepIndex, in: path, required: true, schema: { type: integer, minimum: 0 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VoteEleganceBattleStepInput" }
+      responses:
+        "200":
+          description: Updated step assessment totals
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MathBattleStepSoundness" }
+        "400": { description: Invalid vote }
+        "401": { description: Unauthorized }
+        "403": { description: Forbidden }
+        "404": { description: Step not found }
+        "409": { description: Battle ended }
+
   /math/problems/{id}/elegance-battle/arguments/{argId}/vote:
     post:
       operationId: voteEleganceBattleArgument
@@ -5016,6 +5042,23 @@ components:
           type: array
           items:
             type: string
+        problemType:
+          type: string
+          enum: [solve, prove, explain, counterexample, optimize, open]
+        tags:
+          type: array
+          items:
+            type: string
+        estimatedMinutes:
+          type: ["integer", "null"]
+        prerequisites:
+          type: ["string", "null"]
+        sourceUrl:
+          type: ["string", "null"]
+        sourceAttribution:
+          type: ["string", "null"]
+        isOriginal:
+          type: boolean
         communityDifficulty:
           type: ["number", "null"]
         difficultyVoteCount:
@@ -5114,6 +5157,23 @@ components:
           type: array
           items:
             type: string
+        problemType:
+          type: string
+          enum: [solve, prove, explain, counterexample, optimize, open]
+        tags:
+          type: array
+          items:
+            type: string
+        estimatedMinutes:
+          type: ["integer", "null"]
+        prerequisites:
+          type: ["string", "null"]
+        sourceUrl:
+          type: ["string", "null"]
+        sourceAttribution:
+          type: ["string", "null"]
+        isOriginal:
+          type: boolean
         communityDifficulty:
           type: ["number", "null"]
         difficultyVoteCount:
@@ -5178,8 +5238,12 @@ components:
       properties:
         title:
           type: string
+          minLength: 8
+          maxLength: 180
         body:
           type: string
+          minLength: 20
+          maxLength: 20000
         categoryId:
           type: integer
         difficulty:
@@ -5187,6 +5251,32 @@ components:
           enum: [beginner, intermediate, advanced, olympiad, research]
         hints:
           type: string
+          maxLength: 10000
+        problemType:
+          type: string
+          enum: [solve, prove, explain, counterexample, optimize, open]
+        tags:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            minLength: 1
+            maxLength: 32
+        estimatedMinutes:
+          type: integer
+          minimum: 1
+          maximum: 1440
+        prerequisites:
+          type: string
+          maxLength: 500
+        sourceUrl:
+          type: string
+          maxLength: 1000
+        sourceAttribution:
+          type: string
+          maxLength: 500
+        isOriginal:
+          type: boolean
 
     MathSolutionInput:
       type: object
@@ -5625,10 +5715,17 @@ components:
 
     MathBattleStepSoundness:
       type: object
-      required: [up, down]
+      required: [up, down, myVote]
       properties:
         up: { type: integer }
         down: { type: integer }
+        myVote: { type: ["string", "null"], enum: [sound, unsound, null] }
+
+    VoteEleganceBattleStepInput:
+      type: object
+      required: [vote]
+      properties:
+        vote: { type: string, enum: [sound, unsound] }
 
     MathBattleArgument:
       type: object
